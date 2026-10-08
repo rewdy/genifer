@@ -19,10 +19,14 @@ var (
 
 // modelErrorText produces an actionable message for a model-list failure.
 func modelErrorText(err error) string {
-	if errors.Is(err, provider.ErrAuth) {
-		return "Could not load models: authentication failed — check your API key"
+	switch {
+	case errors.Is(err, provider.ErrNoAPIKey):
+		return "No API key configured — set your OpenRouter API key (see `genifer config`)"
+	case errors.Is(err, provider.ErrAuth):
+		return "Could not load models: authentication failed — your API key was rejected"
+	default:
+		return "Could not load models: " + err.Error()
 	}
-	return "Could not load models: " + err.Error()
 }
 
 // pasteErrorText produces a transient, non-fatal status for a failed image

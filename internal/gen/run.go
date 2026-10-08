@@ -14,6 +14,7 @@ type FailureKind int
 const (
 	FailureNone FailureKind = iota
 	FailureCancelled
+	FailureNoKey
 	FailureAuth
 	FailureCredit
 	FailureGeneration // retryable
@@ -36,8 +37,10 @@ func (o Outcome) Message() string {
 		return "Saved " + o.Path
 	case FailureCancelled:
 		return "Generation cancelled"
+	case FailureNoKey:
+		return "No API key configured — set your OpenRouter API key (see `genifer config`)"
 	case FailureAuth:
-		return "Authentication failed — check your API key"
+		return "Authentication failed — your API key was rejected"
 	case FailureCredit:
 		return "Insufficient account credit"
 	case FailureGeneration:
@@ -89,6 +92,8 @@ func classify(ctx context.Context, err error) FailureKind {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(ctx.Err(), context.Canceled):
 		return FailureCancelled
+	case errors.Is(err, provider.ErrNoAPIKey):
+		return FailureNoKey
 	case errors.Is(err, provider.ErrAuth):
 		return FailureAuth
 	case errors.Is(err, provider.ErrInsufficientCredit):

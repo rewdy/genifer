@@ -166,6 +166,7 @@ func TestRunFailureClassification(t *testing.T) {
 		err  error
 		want FailureKind
 	}{
+		{provider.ErrNoAPIKey, FailureNoKey},
 		{provider.ErrAuth, FailureAuth},
 		{provider.ErrInsufficientCredit, FailureCredit},
 		{provider.ErrGenerationFailed, FailureGeneration},

@@ -70,10 +70,10 @@ var _ provider.Provider = (*Client)(nil)
 func (c *Client) authHeader(ctx context.Context, req *http.Request) error {
 	key, err := c.key(ctx)
 	if err != nil {
-		return fmt.Errorf("%w: %v", provider.ErrAuth, err)
+		return fmt.Errorf("%w: %v", provider.ErrNoAPIKey, err)
 	}
 	if strings.TrimSpace(key) == "" {
-		return fmt.Errorf("%w: empty API key", provider.ErrAuth)
+		return fmt.Errorf("%w: resolved key is empty", provider.ErrNoAPIKey)
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	if c.referer != "" {

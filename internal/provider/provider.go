@@ -110,6 +110,11 @@ type Price struct {
 var (
 	// ErrAuth indicates missing or rejected credentials.
 	ErrAuth = errors.New("authentication failed")
+	// ErrNoAPIKey indicates no API key is configured (the resolved key is
+	// empty or its config directive could not be resolved). It is distinct from
+	// ErrAuth, which indicates the service rejected a key that was sent. The UI
+	// uses the distinction to tell the user to *set* a key versus *fix* one.
+	ErrNoAPIKey = errors.New("no API key configured")
 	// ErrInsufficientCredit indicates the account lacks the credit to generate.
 	ErrInsufficientCredit = errors.New("insufficient account credit")
 	// ErrGenerationFailed indicates the service failed to produce an image; it

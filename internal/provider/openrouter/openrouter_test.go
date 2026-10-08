@@ -203,11 +203,26 @@ func TestGenerateCancellation(t *testing.T) {
 	srv.CloseClientConnections()
 }
 
-// auth: empty key surfaces as ErrAuth without hitting the network
-func TestEmptyKeyIsAuthError(t *testing.T) {
+// auth: empty key surfaces as ErrNoAPIKey (distinct from a rejected key)
+// without hitting the network
+func TestEmptyKeyIsNoAPIKeyError(t *testing.T) {
 	c := New(func(context.Context) (string, error) { return "", nil }, WithBaseURL("http://127.0.0.1:0"))
 	_, err := c.Models(context.Background())
-	if !errors.Is(err, provider.ErrAuth) {
-		t.Fatalf("err = %v, want ErrAuth", err)
+	if !errors.Is(err, provider.ErrNoAPIKey) {
+		t.Fatalf("err = %v, want ErrNoAPIKey", err)
+	}
+	if errors.Is(err, provider.ErrAuth) {
+		t.Error("a missing key must not also be ErrAuth (service-rejection)")
+	}
+}
+
+// auth: a key-resolution failure (e.g. unset env var) is ErrNoAPIKey
+func TestKeyResolutionFailureIsNoAPIKeyError(t *testing.T) {
+	c := New(func(context.Context) (string, error) {
+		return "", errors.New("environment variable \"OPENROUTER_API_KEY\" is not set")
+	}, WithBaseURL("http://127.0.0.1:0"))
+	_, err := c.Models(context.Background())
+	if !errors.Is(err, provider.ErrNoAPIKey) {
+		t.Fatalf("err = %v, want ErrNoAPIKey", err)
 	}
 }
