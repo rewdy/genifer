@@ -64,6 +64,12 @@ type Deps struct {
 	// the newly created config.
 	FirstRun   bool
 	ConfigPath string
+
+	// Paster reads images off the OS clipboard for reference-image paste. When
+	// nil, New installs the default clipboard-backed paster; tests inject a
+	// fake. It is read lazily (never at startup) so a missing clipboard never
+	// blocks launch.
+	Paster imagePaster
 }
 
 // Model is the root Bubble Tea model.
@@ -87,6 +93,9 @@ type Model struct {
 
 	// compose
 	prompt textarea.Model
+
+	// reference images attached for the next generation (paste or file path).
+	refImages []provider.ReferenceImage
 
 	// in-flight
 	spinner spinner.Model
@@ -118,6 +127,10 @@ func New(d Deps) Model {
 	picker.SetShowHelp(false)
 	picker.SetShowPagination(true)
 	picker.DisableQuitKeybindings() // we own quit; the list must not exit the app
+
+	if d.Paster == nil {
+		d.Paster = newClipboardPaster()
+	}
 
 	start := phasePicker
 	status := "Loading models..."
@@ -157,6 +170,31 @@ type modelsLoadedMsg struct {
 }
 
 type generatedMsg struct{ outcome gen.Outcome }
+
+// pastedImageMsg carries the outcome of a clipboard image-paste attempt. On
+// success Ref holds the validated image; on any failure Err is set and the UI
+// shows a transient, non-fatal status.
+type pastedImageMsg struct {
+	ref provider.ReferenceImage
+	err error
+}
+
+// pasteImageCmd reads the clipboard off the UI loop, validates the bytes, and
+// returns a pastedImageMsg. Clipboard access and validation are best-effort;
+// failures become a non-fatal message, never an app error.
+func pasteImageCmd(p imagePaster) tea.Cmd {
+	return func() tea.Msg {
+		data, err := p.ReadImage(context.Background())
+		if err != nil {
+			return pastedImageMsg{err: err}
+		}
+		ref, err := validateRefImage(data)
+		if err != nil {
+			return pastedImageMsg{err: err}
+		}
+		return pastedImageMsg{ref: ref}
+	}
+}
 
 func loadModels(p provider.Provider) tea.Cmd {
 	return func() tea.Msg {
@@ -251,10 +289,32 @@ func (m *Model) rebuildItems() {
 	}
 }
 
+// addRefImage appends a validated reference image to the attachment set.
+func (m *Model) addRefImage(ref provider.ReferenceImage) {
+	m.refImages = append(m.refImages, ref)
+}
+
+// removeLastRefImage drops the most-recently-added reference image, if any. It
+// returns true when an image was removed.
+func (m *Model) removeLastRefImage() bool {
+	if len(m.refImages) == 0 {
+		return false
+	}
+	m.refImages = m.refImages[:len(m.refImages)-1]
+	return true
+}
+
+// composeDraft builds the generation draft from current model state. It is
+// separated from generate so the draft contents (prompt, model, attached
+// reference images) are directly testable.
+func (m Model) composeDraft() gen.Draft {
+	return gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), ReferenceImages: m.refImages}
+}
+
 func (m Model) generate() (Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	d := gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID()}
+	d := m.composeDraft()
 	p := m.deps.Provider
 	dir := m.deps.OutputDir
 	cmd := func() tea.Msg {
@@ -315,6 +375,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.outcome.Failure == gen.FailureNone && m.deps.Config.AutoOpen {
 			return m, m.openCmd()
 		}
+		return m, nil
+
+	case pastedImageMsg:
+		if msg.err != nil {
+			m.status = pasteErrorText(msg.err)
+			return m, nil
+		}
+		m.addRefImage(msg.ref)
+		m.status = fmt.Sprintf("Attached image — %d reference image(s)", len(m.refImages))
 		return m, nil
 
 	case spinner.TickMsg:
@@ -444,19 +513,62 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.phase = phasePicker
 		m.prompt.Blur()
 		return m, nil
-	case "ctrl+s", "alt+enter":
-		if strings.TrimSpace(m.prompt.Value()) == "" {
-			m.status = "Prompt is empty — enter some text"
+	case "ctrl+v", "alt+v":
+		// Paste a reference image from the clipboard, but only for a
+		// reference-capable model. Otherwise fall through so the keystroke
+		// reaches the textarea unchanged.
+		if m.currentCaps().AcceptsReferenceImages {
+			m.status = "Reading clipboard…"
+			return m, pasteImageCmd(m.deps.Paster)
+		}
+	case "ctrl+r":
+		// Remove the most-recently attached reference image.
+		if m.currentCaps().AcceptsReferenceImages && m.removeLastRefImage() {
+			m.status = fmt.Sprintf("Removed image — %d reference image(s)", len(m.refImages))
 			return m, nil
 		}
-		m.phase = phaseReview
-		m.prompt.Blur()
-		m.status = "Review your prompt"
-		return m, nil
+	case "ctrl+s", "alt+enter":
+		return m.submitCompose()
 	}
 	var cmd tea.Cmd
 	m.prompt, cmd = m.prompt.Update(msg)
 	return m, cmd
+}
+
+// submitCompose handles a compose submit: it extracts sigil-prefixed reference
+// paths from the prompt, attaches each (keeping the user in compose on any
+// path failure), strips those lines from the prompt, and advances to review
+// only when the remaining prompt is non-empty and all paths loaded.
+func (m Model) submitCompose() (tea.Model, tea.Cmd) {
+	if m.currentCaps().AcceptsReferenceImages {
+		paths, cleaned := extractRefPaths(m.prompt.Value())
+		if len(paths) > 0 {
+			var loaded []provider.ReferenceImage
+			for _, p := range paths {
+				ref, err := loadRefImageFile(p)
+				if err != nil {
+					// Block the submit; keep the sigil lines so the user can fix
+					// the path rather than silently sending an unresolved prompt.
+					m.status = pasteErrorText(err)
+					return m, nil
+				}
+				loaded = append(loaded, ref)
+			}
+			for _, ref := range loaded {
+				m.addRefImage(ref)
+			}
+			m.prompt.SetValue(cleaned)
+			m.status = fmt.Sprintf("Attached %d image(s) from path — %d reference image(s)", len(loaded), len(m.refImages))
+		}
+	}
+	if strings.TrimSpace(m.prompt.Value()) == "" {
+		m.status = "Prompt is empty — enter some text"
+		return m, nil
+	}
+	m.phase = phaseReview
+	m.prompt.Blur()
+	m.status = "Review your prompt"
+	return m, nil
 }
 
 func (m Model) handleReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

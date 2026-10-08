@@ -115,6 +115,7 @@ func run() error {
 		Version:     buildVersion(),
 		FirstRun:    noConfig,
 		ConfigPath:  cfgPath,
+		Paster:      tui.NewClipboardPaster(),
 	}
 	return tui.Run(deps)
 }

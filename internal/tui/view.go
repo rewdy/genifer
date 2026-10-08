@@ -25,6 +25,22 @@ func modelErrorText(err error) string {
 	return "Could not load models: " + err.Error()
 }
 
+// pasteErrorText produces a transient, non-fatal status for a failed image
+// attach (clipboard paste or file path). Every failure mode collapses to a
+// short, user-facing hint; none is an application error.
+func pasteErrorText(err error) string {
+	switch {
+	case errors.Is(err, ErrNoClipboardImage):
+		return "No image in clipboard"
+	case errors.Is(err, errRefImageTooLarge):
+		return "Image is too large to attach"
+	case errors.Is(err, errRefImageUndecodable):
+		return "Clipboard data is not a supported image"
+	default:
+		return "Could not attach image: " + err.Error()
+	}
+}
+
 func (m Model) View() string {
 	if m.quit {
 		return ""
@@ -144,7 +160,7 @@ func (m Model) composeView() string {
 	ctrls := controlsFor(m.currentCaps())
 	var extras []string
 	if ctrls.ShowReference {
-		extras = append(extras, "reference images supported")
+		extras = append(extras, "paste image: ctrl+v")
 	}
 	if ctrls.ShowAspectRatio {
 		extras = append(extras, "aspect ratios: "+strings.Join(ctrls.AspectRatios, " "))
@@ -156,7 +172,28 @@ func (m Model) composeView() string {
 	if len(extras) > 0 {
 		hint = "\n" + styleFaint.Render(strings.Join(extras, " · "))
 	}
-	return fmt.Sprintf("Model: %s%s\n\n%s", m.currentModelID(), hint, m.prompt.View())
+	pills := ""
+	if ctrls.ShowReference && len(m.refImages) > 0 {
+		pills = "\n" + refImagePills(len(m.refImages))
+	}
+	return fmt.Sprintf("Model: %s%s%s\n\n%s", m.currentModelID(), hint, pills, m.prompt.View())
+}
+
+// stylePill renders an attached-reference-image chip.
+var stylePill = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#1b1726")).
+	Background(colorGen).
+	Padding(0, 1).
+	Bold(true)
+
+// refImagePills renders one chip per attached reference image, with a count.
+func refImagePills(n int) string {
+	chips := make([]string, n)
+	for i := 0; i < n; i++ {
+		chips[i] = stylePill.Render(fmt.Sprintf("Image %d", i+1))
+	}
+	count := styleFaint.Render(fmt.Sprintf(" %d attached", n))
+	return strings.Join(chips, " ") + count
 }
 
 func (m Model) reviewView() string {
@@ -165,7 +202,11 @@ func (m Model) reviewView() string {
 		BorderForeground(lipgloss.Color("#6d5bd0")).
 		Padding(0, 1).
 		Render(gen.Draft{Prompt: m.prompt.Value()}.Review())
-	return "Review:\n\n" + box
+	out := "Review:\n\n" + box
+	if n := len(m.refImages); n > 0 {
+		out += "\n" + styleFaint.Render(fmt.Sprintf("%d reference image(s) attached", n))
+	}
+	return out
 }
 
 func (m Model) resultView() string {
@@ -205,6 +246,12 @@ func (m Model) footerView() string {
 		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("q", "quit")}
 	case phaseCompose:
 		keys = []string{k("ctrl+s", "review"), k("esc", "back")}
+		if m.currentCaps().AcceptsReferenceImages {
+			keys = append(keys, k("ctrl+v", "paste image"))
+			if len(m.refImages) > 0 {
+				keys = append(keys, k("ctrl+r", "remove image"))
+			}
+		}
 	case phaseReview:
 		keys = []string{k("enter", "generate"), k("e", "edit")}
 	case phaseGenerating:
