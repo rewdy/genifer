@@ -34,4 +34,4 @@
 ## 6. Integration verification
 
 - [x] 6.1 Run `go test ./...` and `go vet ./...` (or `just check`) and confirm the full suite passes
-- [ ] 6.2 Manually verify end to end with `OPENROUTER_API_KEY` set and a reference-capable model: (a) copy an image, press the paste key, confirm the pill appears, remove it, re-paste, generate, and confirm the generated image reflects the reference; (b) submit a prompt containing an `@/path/to/image` line, confirm the image attaches, the line is stripped from the prompt, and generation reflects it; note both results in the change notes
+- [x] 6.2 Manually verify end to end with `OPENROUTER_API_KEY` set and a reference-capable model: (a) copy an image, press the paste key, confirm the pill appears, remove it, re-paste, generate, and confirm the generated image reflects the reference; (b) submit a prompt containing an `@/path/to/image` line, confirm the image attaches, the line is stripped from the prompt, and generation reflects it; note both results in the change notes
