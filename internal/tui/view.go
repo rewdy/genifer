@@ -229,10 +229,18 @@ func refImagePills(n int) string {
 }
 
 func (m Model) reviewView() string {
+	// Bound the box to the terminal width so a long prompt wraps inside the
+	// border instead of overflowing it. lipgloss treats Width as the content
+	// box and draws the border + padding (2 cols each) outside it, so subtract
+	// those from the available width. Fall back to a minimum before the first
+	// WindowSizeMsg (m.width == 0).
+	outer := max(20, m.width-4)
+	inner := max(1, outer-4)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#6d5bd0")).
 		Padding(0, 1).
+		Width(inner).
 		Render(gen.Draft{Prompt: m.prompt.Value()}.Review())
 	out := "Review:\n\n" + box
 	if n := len(m.refImages); n > 0 {
