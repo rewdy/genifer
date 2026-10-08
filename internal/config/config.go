@@ -78,12 +78,18 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-// Dir returns the genifer config directory (e.g. ~/.config/genifer on Unix),
-// following the platform's user config directory convention.
+// Dir returns the genifer config directory, ~/.config/genifer. It honors
+// XDG_CONFIG_HOME when set, otherwise falls back to ~/.config — the same
+// location on every platform, by design, rather than the OS-specific
+// convention (e.g. ~/Library/Application Support on macOS).
 func Dir() (string, error) {
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("config: locating user config dir: %w", err)
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("config: locating home dir: %w", err)
+		}
+		base = filepath.Join(home, ".config")
 	}
 	return filepath.Join(base, "genifer"), nil
 }
