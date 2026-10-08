@@ -1,0 +1,8 @@
+# Compiled binary
+/genifer
+
+# Go test/coverage output
+*.out
+
+# Local agent tooling (Crush) — never commit
+.crush/

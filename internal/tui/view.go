@@ -1,0 +1,171 @@
+package tui
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/rewdy/genifer/internal/gen"
+	"github.com/rewdy/genifer/internal/provider"
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	styleFaint = lipgloss.NewStyle().Foreground(lipgloss.Color("#8b85a0"))
+	styleKey   = lipgloss.NewStyle().Foreground(lipgloss.Color("#b9a6ff")).Bold(true)
+	styleErr   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff6b6b"))
+	styleOK    = lipgloss.NewStyle().Foreground(lipgloss.Color("#7ee787"))
+)
+
+// modelErrorText produces an actionable message for a model-list failure.
+func modelErrorText(err error) string {
+	if errors.Is(err, provider.ErrAuth) {
+		return "Could not load models: authentication failed — check your API key"
+	}
+	return "Could not load models: " + err.Error()
+}
+
+func (m Model) View() string {
+	if m.quit {
+		return ""
+	}
+	header := RenderHeader(m.width, m.deps.Version)
+	body := m.bodyView()
+	footer := m.footerView()
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+
+	// Fill the whole terminal with the app background so the user's terminal
+	// background never shows through / clashes with the TUI.
+	canvas := lipgloss.NewStyle().Background(headerBG).Foreground(lipgloss.Color("#e6e1f2"))
+	if m.width > 0 {
+		canvas = canvas.Width(m.width)
+	}
+	if m.height > 0 {
+		canvas = canvas.Height(m.height)
+	}
+	return canvas.Render(content)
+}
+
+func (m Model) bodyView() string {
+	switch m.phase {
+	case phasePicker:
+		return m.pickerView()
+	case phaseCompose:
+		return m.composeView()
+	case phaseReview:
+		return m.reviewView()
+	case phaseGenerating:
+		return m.spinner.View() + " Generating... (esc to cancel)"
+	case phaseResult:
+		return m.resultView()
+	}
+	return ""
+}
+
+func (m Model) pickerView() string {
+	if !m.modelsReady {
+		return m.spinner.View() + " Loading models..."
+	}
+	if m.modelsErr != nil {
+		return styleErr.Render(modelErrorText(m.modelsErr))
+	}
+	if len(m.models) == 0 {
+		return styleFaint.Render("No image models available.")
+	}
+	return "Select a model:\n\n" + m.picker.View()
+}
+
+func capHint(c provider.Capabilities) string {
+	var parts []string
+	if c.AcceptsReferenceImages {
+		parts = append(parts, "img2img")
+	}
+	if len(c.AspectRatios) > 0 {
+		parts = append(parts, "aspect")
+	}
+	if c.SupportsSeed {
+		parts = append(parts, "seed")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, " ") + "]"
+}
+
+func (m Model) composeView() string {
+	ctrls := controlsFor(m.currentCaps())
+	var extras []string
+	if ctrls.ShowReference {
+		extras = append(extras, "reference images supported")
+	}
+	if ctrls.ShowAspectRatio {
+		extras = append(extras, "aspect ratios: "+strings.Join(ctrls.AspectRatios, " "))
+	}
+	if ctrls.ShowSeed {
+		extras = append(extras, "seed supported")
+	}
+	hint := ""
+	if len(extras) > 0 {
+		hint = "\n" + styleFaint.Render(strings.Join(extras, " · "))
+	}
+	return fmt.Sprintf("Model: %s%s\n\n%s", m.currentModelID(), hint, m.prompt.View())
+}
+
+func (m Model) reviewView() string {
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#6d5bd0")).
+		Padding(0, 1).
+		Render(gen.Draft{Prompt: m.prompt.Value()}.Review())
+	return "Review:\n\n" + box
+}
+
+func (m Model) resultView() string {
+	if m.outcome.Failure == gen.FailureNone {
+		lines := styleOK.Render("✓ " + m.outcome.Message())
+		if m.outcome.CostUSD > 0 {
+			lines += "\n" + styleFaint.Render(fmt.Sprintf("cost: $%.4f", m.outcome.CostUSD))
+		}
+		return lines + "\n"
+	}
+	return styleErr.Render("✗ " + m.outcome.Message())
+}
+
+func (m Model) currentCaps() provider.Capabilities {
+	id := m.currentModelID()
+	for _, mdl := range m.models {
+		if mdl.ID == id {
+			return mdl.Capabilities
+		}
+	}
+	return provider.Capabilities{}
+}
+
+func (m Model) footerView() string {
+	var keys []string
+	switch m.phase {
+	case phasePicker:
+		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("q", "quit")}
+	case phaseCompose:
+		keys = []string{k("ctrl+s", "review"), k("esc", "back")}
+	case phaseReview:
+		keys = []string{k("enter", "generate"), k("e", "edit")}
+	case phaseGenerating:
+		keys = []string{k("esc", "cancel")}
+	case phaseResult:
+		if m.outcome.Failure == gen.FailureNone {
+			keys = []string{k("o", "open"), k("enter", "new"), k("q", "quit")}
+		} else if m.outcome.Retryable() {
+			keys = []string{k("r", "retry"), k("enter", "new"), k("q", "quit")}
+		} else {
+			keys = []string{k("enter", "new"), k("q", "quit")}
+		}
+	}
+	line := strings.Join(keys, styleFaint.Render("  ·  "))
+	status := styleFaint.Render(m.status)
+	return status + "\n" + line
+}
+
+func k(key, desc string) string {
+	return styleKey.Render(key) + " " + styleFaint.Render(desc)
+}
