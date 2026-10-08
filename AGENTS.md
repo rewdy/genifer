@@ -68,9 +68,10 @@ go run . --version    # version only; does not launch the TUI
 go run .              # launch the TUI (needs OPENROUTER_API_KEY)
 ```
 
-Run `go test ./...` and `go vet ./...` before considering a change done. Tests
-live beside code as `*_test.go`; match the existing table-driven style. Don't
-add tests unless the change needs them.
+Run `go test ./...` and `go vet ./...` before considering a change done, or
+`just check` to run build + test + vet in one step (`just` wraps these as
+`build`/`test`/`vet`/`check`). Tests live beside code as `*_test.go`; match the
+existing table-driven style. Don't add tests unless the change needs them.
 
 ## Versioning
 
@@ -84,6 +85,15 @@ When unset, `buildVersion()` falls back to Go's embedded build info (module
 version for `go install module@tag`, else VCS revision). Tags are SemVer with a
 `v` prefix (`v0.2.0`). Bumping the reported version means tagging, not editing a
 constant.
+
+Cut releases with `just release vX.Y.Z "<summary>"` or `just bump
+[patch|minor|major] "<summary>"` (bump computes the next version from the latest
+tag). These enforce the policy: they validate the version, refuse a dirty tree
+or an existing tag, run the gate, create an annotated (signed when a key is
+configured) tag, and print the push command rather than pushing. Two gotchas:
+pass a `summary` — omitting it drops you into `$EDITOR`, which hangs in
+non-interactive contexts; and `just build` omits the `-ldflags` override, so it
+reports the embedded-build-info version, not the `git describe` one.
 
 ## Making changes
 
