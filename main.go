@@ -175,7 +175,7 @@ func buildProvider(cfg config.Config) (provider.Provider, error) {
 }
 
 // resolveOutputDir resolves the configured output directory. See
-// config.ResolveOutputDir for the rules ("." / "pwd" / relative / absolute).
+// config.ResolveOutputDir for the rules ("." / "pwd" / "~" / relative / absolute).
 func resolveOutputDir(cfg config.Config) (string, error) {
 	raw, err := cfg.OutputDir.Resolve(context.Background())
 	if err != nil {
@@ -185,5 +185,5 @@ func resolveOutputDir(cfg config.Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return config.ResolveOutputDir(raw, os.Getwd, def)
+	return config.ResolveOutputDir(raw, os.Getwd, os.UserHomeDir, def)
 }
