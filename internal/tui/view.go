@@ -48,6 +48,8 @@ func (m Model) View() string {
 
 func (m Model) bodyView() string {
 	switch m.phase {
+	case phaseOnboarding:
+		return m.onboardingView()
 	case phasePicker:
 		return m.pickerView()
 	case phaseCompose:
@@ -60,6 +62,52 @@ func (m Model) bodyView() string {
 		return m.resultView()
 	}
 	return ""
+}
+
+// welcomeBanner is a bold "WELCOME" wordmark shown on first run, tinted with
+// the app's pink→purple palette.
+var welcomeBanner = []string{
+	"╦ ╦ ╔═╗ ╦   ╔═╗ ╔═╗ ╔╦╗ ╔═╗",
+	"║║║ ║╣  ║   ║   ║ ║ ║║║ ║╣ ",
+	"╚╩╝ ╚═╝ ╩═╝ ╚═╝ ╚═╝ ╩ ╩ ╚═╝",
+}
+
+func (m Model) onboardingView() string {
+	banner := make([]string, len(welcomeBanner))
+	style := lipgloss.NewStyle().Foreground(colorGen).Background(headerBG).Bold(true)
+	for i, line := range welcomeBanner {
+		banner[i] = style.Render(line)
+	}
+	title := lipgloss.JoinVertical(lipgloss.Left, banner...)
+
+	intro := styleFaint.Render("Let's set up genifer. First, how should it get your OpenRouter API key?")
+
+	var body string
+	switch m.onboard.step {
+	case stepChoose:
+		var rows []string
+		for i, c := range methodChoices {
+			marker := "  "
+			label := c.label
+			if i == m.onboard.cursor {
+				marker = styleKey.Render("› ")
+				label = styleKey.Render(label)
+			}
+			rows = append(rows, marker+label+"  "+styleFaint.Render(c.hint))
+		}
+		body = strings.Join(rows, "\n")
+	case stepInput:
+		body = styleFaint.Render(promptFor(m.onboard.selectedMethod())) + "\n\n" + m.onboard.input.View()
+	case stepConfirm:
+		body = styleErr.Render("⚠ The key will be stored as plain text in config.yaml.") +
+			"\n" + styleFaint.Render("Press y to save it, or n to go back.")
+	}
+
+	parts := []string{title, "", intro, "", body}
+	if m.onboard.writeErr != nil {
+		parts = append(parts, "", styleErr.Render("Could not write config: "+m.onboard.writeErr.Error()))
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (m Model) pickerView() string {
@@ -144,6 +192,15 @@ func (m Model) currentCaps() provider.Capabilities {
 func (m Model) footerView() string {
 	var keys []string
 	switch m.phase {
+	case phaseOnboarding:
+		switch m.onboard.step {
+		case stepChoose:
+			keys = []string{k("↑/↓", "move"), k("enter", "select"), k("q", "quit")}
+		case stepInput:
+			keys = []string{k("enter", "confirm"), k("esc", "back")}
+		case stepConfirm:
+			keys = []string{k("y", "save"), k("n", "back")}
+		}
 	case phasePicker:
 		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("q", "quit")}
 	case phaseCompose:

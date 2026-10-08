@@ -42,7 +42,8 @@ func (i modelItem) Description() string { return "" }
 type phase int
 
 const (
-	phasePicker     phase = iota // choosing a model
+	phaseOnboarding phase = iota // first-run: capture API-key provider choice
+	phasePicker                  // choosing a model
 	phaseCompose                 // entering a prompt
 	phaseReview                  // confirming the prompt
 	phaseGenerating              // request in flight
@@ -57,6 +58,12 @@ type Deps struct {
 	OutputDir   string
 	OpenCommand string
 	Version     string
+
+	// FirstRun is true when no config.yaml exists yet; it triggers the
+	// onboarding flow before the picker. ConfigPath is where onboarding writes
+	// the newly created config.
+	FirstRun   bool
+	ConfigPath string
 }
 
 // Model is the root Bubble Tea model.
@@ -88,6 +95,9 @@ type Model struct {
 	// result
 	outcome gen.Outcome
 
+	// onboarding (first run only)
+	onboard onboardState
+
 	status string
 	quit   bool
 }
@@ -109,18 +119,33 @@ func New(d Deps) Model {
 	picker.SetShowPagination(true)
 	picker.DisableQuitKeybindings() // we own quit; the list must not exit the app
 
+	start := phasePicker
+	status := "Loading models..."
+	var onboard onboardState
+	if d.FirstRun {
+		start = phaseOnboarding
+		onboard = newOnboardState()
+		status = "Welcome to genifer"
+	}
+
 	return Model{
 		deps:     d,
-		phase:    phasePicker,
+		phase:    start,
 		prompt:   ta,
 		spinner:  sp,
 		picker:   picker,
 		selected: -1,
-		status:   "Loading models...",
+		status:   status,
+		onboard:  onboard,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
+	// On first run, hold off loading models until onboarding writes the config
+	// (the provider needs the chosen API key). Otherwise load immediately.
+	if m.phase == phaseOnboarding {
+		return m.spinner.Tick
+	}
 	return tea.Batch(loadModels(m.deps.Provider), m.spinner.Tick)
 }
 
@@ -297,11 +322,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	case onboardWrittenMsg:
+		// Onboarding finished writing config; enter the picker and load models.
+		m.phase = phasePicker
+		if msg.err != nil {
+			m.onboard.writeErr = msg.err
+		}
+		m.status = "Loading models..."
+		return m, tea.Batch(loadModels(m.deps.Provider), m.spinner.Tick)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 
 	// Route to the active input widget.
+	if m.phase == phaseOnboarding {
+		return m.updateOnboarding(msg)
+	}
 	if m.phase == phaseCompose {
 		var cmd tea.Cmd
 		m.prompt, cmd = m.prompt.Update(msg)
@@ -328,6 +365,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.phase {
+	case phaseOnboarding:
+		return m.handleOnboardingKey(msg)
 	case phasePicker:
 		return m.handlePickerKey(msg)
 	case phaseCompose:

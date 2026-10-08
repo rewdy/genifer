@@ -13,6 +13,23 @@ genifer reads two files from your platform config directory
 If `config.yaml` is missing, genifer runs with defaults and tells you where it
 looked. A malformed `config.yaml` is a hard error (it won't silently fall back).
 
+## Editing the config
+
+```sh
+genifer config        # create a starter config.yaml (if missing), then open it
+genifer config path   # print the config.yaml path and exit
+```
+
+`genifer config` opens the file in your editor, resolved as `$VISUAL`, then
+`$EDITOR`, then an OS default (macOS `open -t`, Linux `xdg-open`, Windows
+`notepad`). On first use it writes a commented starter `config.yaml`; it never
+overwrites an existing one. `genifer config path` just prints the path (handy
+for scripting) without creating or opening anything.
+
+New users don't need either command: on first launch with no config, genifer
+walks you through creating one — see the first-run section of the
+[README](../README.md).
+
 ## config.yaml
 
 ```yaml

@@ -61,6 +61,32 @@ See [docs/config.md](docs/config.md) for the full schema and the
 `{env:...}` / `{cmd:...}` value directives, and
 [docs/openrouter.md](docs/openrouter.md) for provider details.
 
+To create and edit the config without writing it by hand:
+
+```sh
+genifer config        # create a starter config.yaml (if missing), then open it
+genifer config path   # print the config.yaml path
+```
+
+`genifer config` opens your editor (`$VISUAL`, then `$EDITOR`, then an OS
+default) on a commented starter file. It never overwrites an existing config.
+
+### First run
+
+The very first time you launch genifer with no config, it greets you with a
+`WELCOME` screen and asks how it should get your OpenRouter API key:
+
+- **Environment variable** — reads it from a variable like `OPENROUTER_API_KEY`
+  (recommended; written as `{env:NAME}`).
+- **Command** — runs a command to fetch it, e.g. a secrets manager (written as
+  `{cmd:...}`).
+- **Paste a key** — stores the key directly; genifer warns first that it will be
+  saved as plain text and asks you to confirm.
+
+Your choice is written into a new `config.yaml` and genifer continues straight
+into the model picker. On later launches the config exists, so onboarding is
+skipped.
+
 > Note: `config.yaml` is yours to edit. genifer stores its own state in
 > `~/.config/genifer/state.json` (last model) and `~/.config/genifer/pricing-cache.json`
 > (per-model prices, refreshed daily) — don't hand-edit those.

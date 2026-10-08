@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"runtime/debug"
 
 	"github.com/rewdy/genifer/internal/config"
@@ -62,11 +64,14 @@ func main() {
 }
 
 func run() error {
-	for _, arg := range os.Args[1:] {
-		switch arg {
+	args := os.Args[1:]
+	if len(args) > 0 {
+		switch args[0] {
 		case "--version", "-v", "version":
 			fmt.Println(buildVersion())
 			return nil
+		case "config":
+			return configCommand(args[1:])
 		}
 	}
 
@@ -108,11 +113,46 @@ func run() error {
 		OutputDir:   outputDir,
 		OpenCommand: openCmd,
 		Version:     buildVersion(),
-	}
-	if noConfig {
-		fmt.Fprintf(os.Stderr, "No config found at %s — using defaults.\n", cfgPath)
+		FirstRun:    noConfig,
+		ConfigPath:  cfgPath,
 	}
 	return tui.Run(deps)
+}
+
+// configCommand implements `genifer config` and `genifer config path`.
+//
+//   - `genifer config path` prints the resolved config path and exits, with no
+//     side effects (no file creation, no editor, no TUI).
+//   - `genifer config` creates a commented starter config.yaml if none exists,
+//     then opens it in the resolved editor ($VISUAL → $EDITOR → OS default),
+//     returning before the TUI is launched.
+func configCommand(args []string) error {
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return err
+	}
+
+	if len(args) > 0 && args[0] == "path" {
+		fmt.Println(cfgPath)
+		return nil
+	}
+
+	if _, err := config.WriteStarter(cfgPath, ""); err != nil {
+		return err
+	}
+
+	argv, err := config.ResolveEditor(os.Getenv, runtime.GOOS)
+	if err != nil {
+		return fmt.Errorf("%w\nedit it directly at: %s", err, cfgPath)
+	}
+
+	argv = append(argv, cfgPath)
+	c := exec.Command(argv[0], argv[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("opening %s with %q: %w", cfgPath, argv[0], err)
+	}
+	return nil
 }
 
 // buildProvider constructs the configured provider. The API key is resolved
