@@ -122,3 +122,39 @@ genifer
 
 Image generation requires an OpenRouter account with more than $1 of credit.
 See [docs/openrouter.md](docs/openrouter.md).
+
+## Development
+
+Common tasks run through [`just`](https://github.com/casey/just):
+
+```sh
+just          # list recipes
+just check    # build + test + vet
+```
+
+### Cutting a release
+
+Versions are SemVer tags with a `v` prefix (the reported version comes from
+`git describe --tags`, so a release *is* a tag — there's no constant to bump).
+`just release` enforces that:
+
+```sh
+just release v0.3.0 "config command and first-run onboarding"
+```
+
+It validates the version, refuses a dirty tree or an already-used tag, runs the
+full build/test/vet gate, then creates an annotated tag (signed when a signing
+key is configured). It does **not** push — on success it prints the
+`git push origin <tag>` command to run when you're ready.
+
+To bump from the latest tag instead of naming a version, use `just bump`, which
+computes the next version and routes through `release` (same guards and gate):
+
+```sh
+just bump              # patch: v0.3.0 -> v0.3.1
+just bump minor        # v0.3.1 -> v0.4.0
+just bump major "big rewrite"
+```
+
+The level defaults to `patch`. If there are no tags yet, `bump` won't guess —
+cut the first release explicitly with `just release v0.1.0`.
