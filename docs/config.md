@@ -5,7 +5,7 @@ genifer reads two files from your platform config directory
 
 - `config.yaml` — **you own this.** genifer never writes to it.
 - `state.json` — **genifer owns this.** It stores last-used selections (e.g. the
-  last model) and is rewritten freely. Don't hand-edit it.
+  last model and last aspect ratio) and is rewritten freely. Don't hand-edit it.
 - `pricing-cache.json` — **genifer owns this.** It caches per-model prices for
   24h so the picker doesn't refetch pricing on every launch. Safe to delete; it
   will be rebuilt. Don't hand-edit it.

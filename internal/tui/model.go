@@ -45,6 +45,7 @@ const (
 	phaseOnboarding phase = iota // first-run: capture API-key provider choice
 	phasePicker                  // choosing a model
 	phaseCompose                 // entering a prompt
+	phaseAspect                  // choosing an output aspect ratio (modal dialog)
 	phaseReview                  // confirming the prompt
 	phaseGenerating              // request in flight
 	phaseResult                  // showing outcome, offering open
@@ -93,6 +94,15 @@ type Model struct {
 
 	// compose
 	prompt textarea.Model
+
+	// aspectRatio is the currently selected output aspect ratio for the active
+	// model. Empty when the model offers no aspect ratios. Recomputed whenever
+	// the active model changes.
+	aspectRatio string
+
+	// aspectCursor is the highlighted row within the aspect-ratio dialog while
+	// it is open (phaseAspect). It indexes the active model's offered ratios.
+	aspectCursor int
 
 	// reference images attached for the next generation (paste or file path).
 	refImages []provider.ReferenceImage
@@ -308,10 +318,23 @@ func (m *Model) removeLastRefImage() bool {
 // separated from generate so the draft contents (prompt, model, attached
 // reference images) are directly testable.
 func (m Model) composeDraft() gen.Draft {
-	return gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), ReferenceImages: m.refImages}
+	return gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
+}
+
+// persistAspectRatio records the current aspect-ratio selection as the
+// last-used value, preserving any other remembered selection (read-modify-write
+// so the remembered model is not clobbered). A no-op when nothing is selected.
+func (m Model) persistAspectRatio() {
+	if m.aspectRatio == "" {
+		return
+	}
+	s := config.LoadState(m.deps.StatePath)
+	s.LastAspectRatio = m.aspectRatio
+	_ = config.SaveState(m.deps.StatePath, s)
 }
 
 func (m Model) generate() (Model, tea.Cmd) {
+	m.persistAspectRatio()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	d := m.composeDraft()
@@ -440,6 +463,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePickerKey(msg)
 	case phaseCompose:
 		return m.handleComposeKey(msg)
+	case phaseAspect:
+		return m.handleAspectKey(msg)
 	case phaseReview:
 		return m.handleReviewKey(msg)
 	case phaseGenerating:
@@ -469,7 +494,10 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		if it, ok := m.picker.SelectedItem().(modelItem); ok {
 			m.selected = indexOfModel(m.models, it.m.ID)
-			_ = config.SaveState(m.deps.StatePath, config.State{LastModel: it.m.ID})
+			s := config.LoadState(m.deps.StatePath)
+			m.aspectRatio = pickAspectRatio(it.m.Capabilities.AspectRatios, s.LastAspectRatio)
+			s.LastModel = it.m.ID
+			_ = config.SaveState(m.deps.StatePath, s)
 			m.phase = phaseCompose
 			m.prompt.Focus()
 			m.status = "Compose your prompt"
@@ -527,12 +555,52 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("Removed image — %d reference image(s)", len(m.refImages))
 			return m, nil
 		}
+	case "ctrl+a":
+		// Open the aspect-ratio dialog, but only for a model that offers a
+		// choice. Otherwise fall through so the keystroke reaches the textarea.
+		if ratios := m.currentCaps().AspectRatios; len(ratios) > 0 {
+			m.phase = phaseAspect
+			m.aspectCursor = indexOfString(ratios, m.aspectRatio)
+			if m.aspectCursor < 0 {
+				m.aspectCursor = 0
+			}
+			m.status = "Choose an output aspect ratio"
+			return m, nil
+		}
 	case "ctrl+s", "alt+enter":
 		return m.submitCompose()
 	}
 	var cmd tea.Cmd
 	m.prompt, cmd = m.prompt.Update(msg)
 	return m, cmd
+}
+
+// handleAspectKey drives the modal aspect-ratio dialog: up/down move the
+// highlighted row (clamped), enter confirms the highlighted ratio as the new
+// selection, and esc leaves the selection unchanged. All paths return to
+// compose except movement.
+func (m Model) handleAspectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	ratios := m.currentCaps().AspectRatios
+	switch msg.String() {
+	case "up", "k":
+		if m.aspectCursor > 0 {
+			m.aspectCursor--
+		}
+	case "down", "j":
+		if m.aspectCursor < len(ratios)-1 {
+			m.aspectCursor++
+		}
+	case "enter":
+		if m.aspectCursor >= 0 && m.aspectCursor < len(ratios) {
+			m.aspectRatio = ratios[m.aspectCursor]
+		}
+		m.phase = phaseCompose
+		m.status = "Aspect ratio: " + m.aspectRatio
+	case "esc":
+		m.phase = phaseCompose
+		m.status = "Compose your prompt"
+	}
+	return m, nil
 }
 
 // submitCompose handles a compose submit: it extracts sigil-prefixed reference

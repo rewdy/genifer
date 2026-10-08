@@ -50,3 +50,31 @@ func TestSaveStateDoesNotTouchConfig(t *testing.T) {
 		t.Error("SaveState must not modify config.yaml")
 	}
 }
+
+func TestStateAspectRatioRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	in := State{LastModel: "google/gemini-2.5-flash-image", LastAspectRatio: "16:9"}
+	if err := SaveState(path, in); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+	got := LoadState(path)
+	if got.LastAspectRatio != "16:9" {
+		t.Errorf("LastAspectRatio = %q, want %q", got.LastAspectRatio, "16:9")
+	}
+	if got.LastModel != in.LastModel {
+		t.Errorf("LastModel = %q, want %q", got.LastModel, in.LastModel)
+	}
+}
+
+func TestStateAspectRatioEmptyWhenMissing(t *testing.T) {
+	if got := LoadState(filepath.Join(t.TempDir(), "absent.json")); got.LastAspectRatio != "" {
+		t.Errorf("missing file: LastAspectRatio = %q, want empty", got.LastAspectRatio)
+	}
+	path := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadState(path); got.LastAspectRatio != "" {
+		t.Errorf("invalid file: LastAspectRatio = %q, want empty", got.LastAspectRatio)
+	}
+}

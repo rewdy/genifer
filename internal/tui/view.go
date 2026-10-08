@@ -74,6 +74,8 @@ func (m Model) bodyView() string {
 		return m.pickerView()
 	case phaseCompose:
 		return m.composeView()
+	case phaseAspect:
+		return m.aspectView()
 	case phaseReview:
 		return m.reviewView()
 	case phaseGenerating:
@@ -167,7 +169,7 @@ func (m Model) composeView() string {
 		extras = append(extras, "paste image: ctrl+v")
 	}
 	if ctrls.ShowAspectRatio {
-		extras = append(extras, "aspect ratios: "+strings.Join(ctrls.AspectRatios, " "))
+		extras = append(extras, "aspect: "+m.aspectRatio+" (ctrl+a to change)")
 	}
 	if ctrls.ShowSeed {
 		extras = append(extras, "seed supported")
@@ -181,6 +183,32 @@ func (m Model) composeView() string {
 		pills = "\n" + refImagePills(len(m.refImages))
 	}
 	return fmt.Sprintf("Model: %s%s%s\n\n%s", m.currentModelID(), hint, pills, m.prompt.View())
+}
+
+// styleAspectSel highlights the cursor row in the aspect-ratio dialog.
+var styleAspectSel = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#1b1726")).
+	Background(colorGen).
+	Bold(true)
+
+// aspectView renders the modal aspect-ratio dialog: every offered ratio on its
+// own row, the highlighted row marked, inside a bordered box.
+func (m Model) aspectView() string {
+	ratios := m.currentCaps().AspectRatios
+	rows := make([]string, len(ratios))
+	for i, r := range ratios {
+		if i == m.aspectCursor {
+			rows[i] = styleAspectSel.Render("› " + r)
+		} else {
+			rows[i] = "  " + r
+		}
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#6d5bd0")).
+		Padding(0, 1).
+		Render(strings.Join(rows, "\n"))
+	return "Output aspect ratio:\n\n" + box
 }
 
 // stylePill renders an attached-reference-image chip.
@@ -250,12 +278,17 @@ func (m Model) footerView() string {
 		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("q", "quit")}
 	case phaseCompose:
 		keys = []string{k("ctrl+s", "review"), k("esc", "back")}
+		if len(m.currentCaps().AspectRatios) > 0 {
+			keys = append(keys, k("ctrl+a", "aspect ratio"))
+		}
 		if m.currentCaps().AcceptsReferenceImages {
 			keys = append(keys, k("ctrl+v", "paste image"))
 			if len(m.refImages) > 0 {
 				keys = append(keys, k("ctrl+r", "remove image"))
 			}
 		}
+	case phaseAspect:
+		keys = []string{k("↑/↓", "move"), k("enter", "select"), k("esc", "cancel")}
 	case phaseReview:
 		keys = []string{k("enter", "generate"), k("e", "edit")}
 	case phaseGenerating:

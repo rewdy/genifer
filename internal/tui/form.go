@@ -85,3 +85,30 @@ func preselectModel(models []provider.Model, lastModel string) int {
 	}
 	return 0
 }
+
+// pickAspectRatio chooses the default aspect-ratio selection for a model: the
+// last-used ratio when the model still offers it, otherwise the model's first
+// offered ratio, or "" when the model offers none.
+func pickAspectRatio(offered []string, last string) string {
+	if len(offered) == 0 {
+		return ""
+	}
+	if last != "" {
+		for _, r := range offered {
+			if r == last {
+				return last
+			}
+		}
+	}
+	return offered[0]
+}
+
+// indexOfString returns the index of s in list, or -1 when absent.
+func indexOfString(list []string, s string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
+}

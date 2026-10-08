@@ -88,7 +88,8 @@ into the model picker. On later launches the config exists, so onboarding is
 skipped.
 
 > Note: `config.yaml` is yours to edit. genifer stores its own state in
-> `~/.config/genifer/state.json` (last model) and `~/.config/genifer/pricing-cache.json`
+> `~/.config/genifer/state.json` (last model and last aspect ratio) and
+> `~/.config/genifer/pricing-cache.json`
 > (per-model prices, refreshed daily) — don't hand-edit those.
 
 ## Run
@@ -102,7 +103,9 @@ genifer
 1. genifer opens full-screen and loads the available image models.
 2. Pick a model with `↑/↓` (press `/` to filter the list by name), then
    `enter` (your choice is remembered next time).
-3. Type a prompt, then press `ctrl+s` to review it.
+3. Type a prompt. If the model offers a choice of output sizes, press
+   `ctrl+a` to open a dialog listing the available aspect ratios and pick one
+   (your last choice is remembered). Then press `ctrl+s` to review it.
 4. At the review screen, press `enter` to generate or `e` to edit.
 5. While generating, press `esc` to cancel.
 6. On success, the image is saved and you can press `o` to open it
@@ -113,7 +116,7 @@ genifer
 | Context    | Keys                                      |
 | ---------- | ----------------------------------------- |
 | Picker     | `↑/↓` move · `/` filter · `enter` select · `q` quit |
-| Compose    | `ctrl+s` review · `esc` back              |
+| Compose    | `ctrl+s` review · `esc` back · `ctrl+a` aspect ratio (when offered) |
 | Review     | `enter` generate · `e` edit               |
 | Generating | `esc` cancel                              |
 | Result     | `o` open · `r` retry · `enter` new · `q` quit |

@@ -40,6 +40,26 @@ func TestPreselectModel(t *testing.T) {
 	}
 }
 
+func TestPickAspectRatio(t *testing.T) {
+	offered := []string{"1:1", "16:9", "9:16"}
+	// Last present -> last.
+	if got := pickAspectRatio(offered, "16:9"); got != "16:9" {
+		t.Errorf("pick(16:9) = %q, want 16:9", got)
+	}
+	// Last absent -> first offered.
+	if got := pickAspectRatio(offered, "21:9"); got != "1:1" {
+		t.Errorf("pick(absent) = %q, want 1:1", got)
+	}
+	// No remembered ratio -> first offered.
+	if got := pickAspectRatio(offered, ""); got != "1:1" {
+		t.Errorf("pick(empty) = %q, want 1:1", got)
+	}
+	// No offered ratios -> "".
+	if got := pickAspectRatio(nil, "16:9"); got != "" {
+		t.Errorf("pick(none offered) = %q, want empty", got)
+	}
+}
+
 func TestControlsForRefCapable(t *testing.T) {
 	caps := provider.Capabilities{
 		AcceptsReferenceImages: true,
