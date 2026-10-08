@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime/debug"
 
 	"github.com/rewdy/genifer/internal/config"
 	"github.com/rewdy/genifer/internal/provider"
@@ -13,8 +14,45 @@ import (
 	"github.com/rewdy/genifer/internal/tui"
 )
 
-// version is the display version shown in the header.
-const version = "v0.1.0"
+// version is the display version. It defaults to "dev" and may be overridden at
+// build time via -ldflags "-X main.version=...". When unset, buildVersion
+// derives it from the embedded module/VCS build info.
+var version = "dev"
+
+// buildVersion resolves the version to display. A build-time override (via
+// -ldflags) wins; otherwise it falls back to the Go-embedded build info: the
+// module version for `go install module@tag` builds, or the VCS revision for
+// plain `go build`.
+func buildVersion() string {
+	if version != "dev" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return version
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	var rev, dirty string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			if s.Value == "true" {
+				dirty = "-dirty"
+			}
+		}
+	}
+	if rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		return rev + dirty
+	}
+	return version
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -24,6 +62,14 @@ func main() {
 }
 
 func run() error {
+	for _, arg := range os.Args[1:] {
+		switch arg {
+		case "--version", "-v", "version":
+			fmt.Println(buildVersion())
+			return nil
+		}
+	}
+
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
 		return err
@@ -61,7 +107,7 @@ func run() error {
 		StatePath:   statePath,
 		OutputDir:   outputDir,
 		OpenCommand: openCmd,
-		Version:     version,
+		Version:     buildVersion(),
 	}
 	if noConfig {
 		fmt.Fprintf(os.Stderr, "No config found at %s — using defaults.\n", cfgPath)
