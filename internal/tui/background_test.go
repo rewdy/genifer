@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/gen"
-	"github.com/rewdy/genifer/internal/provider"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rewdy/genifer/internal/gen"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // wantAppBG is the truecolor SGR prefix for the app background in tests (the
@@ -111,7 +111,7 @@ func TestPickerStylesUseAppBackground(t *testing.T) {
 // TestDelegateRowFillsWidth checks a short model row is padded to the list
 // width with the app background rather than leaving the terminal default.
 func TestDelegateRowFillsWidth(t *testing.T) {
-	it := modelItem{m: provider.Model{Name: "Short"}}
+	it := modelItem{t: taggedModel{ProviderKey: "or", Model: provider.Model{Name: "Short"}}}
 	l := list.New([]list.Item{it}, modelDelegate{}, 40, 4)
 	l.Select(0)
 
@@ -190,11 +190,11 @@ func TestPaintBackgroundReassertsAndPads(t *testing.T) {
 func TestViewLinesFullWidth(t *testing.T) {
 	const width, height = 80, 24
 
-	models := []provider.Model{{
+	models := []taggedModel{{ProviderKey: "test", Model: provider.Model{
 		ID:           "test/model",
 		Name:         "Test Model",
 		Capabilities: provider.Capabilities{AcceptsReferenceImages: true, AspectRatios: []string{"1:1", "16:9"}},
-	}}
+	}}}
 
 	build := func(phase phase, mutate func(*Model)) Model {
 		m := New(Deps{})

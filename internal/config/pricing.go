@@ -11,13 +11,23 @@ import (
 )
 
 // pricingCacheVersion is bumped when the on-disk format changes; a mismatch
-// makes the cache ignored and re-fetched rather than mis-parsed.
-const pricingCacheVersion = 1
+// makes the cache ignored and re-fetched rather than mis-parsed. Version 2
+// re-keys entries by "providerKey/modelID" so models sharing an id across
+// providers do not overwrite each other.
+const pricingCacheVersion = 2
 
 // PricingTTL is how long a cached pricing snapshot is considered fresh.
 const PricingTTL = 24 * time.Hour
 
-// PricingCache is the app-owned, on-disk cache of per-model classified prices.
+// PricingCacheKey composes the cache/map key for a model: "providerKey/modelID".
+// It is the single source of truth for the composite key so in-memory and
+// on-disk pricing stay aligned.
+func PricingCacheKey(providerKey, modelID string) string {
+	return providerKey + "/" + modelID
+}
+
+// PricingCache is the app-owned, on-disk cache of per-model classified prices,
+// keyed by PricingCacheKey(providerKey, modelID).
 type PricingCache struct {
 	Version   int                       `json:"version"`
 	FetchedAt time.Time                 `json:"fetched_at"`

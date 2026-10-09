@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/rewdy/genifer/internal/gen"
 	"github.com/rewdy/genifer/internal/provider"
-	"github.com/charmbracelet/lipgloss"
 )
 
 var (
@@ -109,10 +109,22 @@ func (m Model) onboardingView() string {
 	}
 	title := lipgloss.JoinVertical(lipgloss.Left, banner...)
 
-	intro := styleFaint.Render("Let's set up genifer. First, how should it get your OpenRouter API key?")
+	intro := styleFaint.Render("Let's set up genifer. First, choose a provider.")
 
 	var body string
 	switch m.onboard.step {
+	case stepType:
+		var rows []string
+		for i, c := range typeChoices {
+			marker := "  "
+			label := c.label
+			if i == m.onboard.typeCursor {
+				marker = styleKey.Render("› ")
+				label = styleKey.Render(label)
+			}
+			rows = append(rows, marker+label+"  "+styleFaint.Render(c.hint))
+		}
+		body = strings.Join(rows, "\n")
 	case stepChoose:
 		var rows []string
 		for i, c := range methodChoices {
@@ -126,7 +138,7 @@ func (m Model) onboardingView() string {
 		}
 		body = strings.Join(rows, "\n")
 	case stepInput:
-		body = styleFaint.Render(promptFor(m.onboard.selectedMethod())) + "\n\n" + m.onboard.input.View()
+		body = styleFaint.Render(m.onboardInputPrompt()) + "\n\n" + m.onboard.input.View()
 	case stepConfirm:
 		body = styleErr.Render("⚠ The key will be stored as plain text in config.yaml.") +
 			"\n" + styleFaint.Render("Press y to save it, or n to go back.")
@@ -272,10 +284,10 @@ func (m Model) resultView() string {
 }
 
 func (m Model) currentCaps() provider.Capabilities {
-	id := m.currentModelID()
-	for _, mdl := range m.models {
-		if mdl.ID == id {
-			return mdl.Capabilities
+	providerKey, id := m.currentSelection()
+	for _, tm := range m.models {
+		if tm.ProviderKey == providerKey && tm.Model.ID == id {
+			return tm.Model.Capabilities
 		}
 	}
 	return provider.Capabilities{}
@@ -286,8 +298,10 @@ func (m Model) footerView() string {
 	switch m.phase {
 	case phaseOnboarding:
 		switch m.onboard.step {
-		case stepChoose:
+		case stepType:
 			keys = []string{k("↑/↓", "move"), k("enter", "select"), k("q", "quit")}
+		case stepChoose:
+			keys = []string{k("↑/↓", "move"), k("enter", "select"), k("esc", "back"), k("q", "quit")}
 		case stepInput:
 			keys = []string{k("enter", "confirm"), k("esc", "back")}
 		case stepConfirm:

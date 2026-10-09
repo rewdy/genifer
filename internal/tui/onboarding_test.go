@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rewdy/genifer/internal/config"
 )
 
 // TestInitialPhase asserts the model starts in onboarding only on first run.
@@ -64,14 +64,19 @@ func keyMsg(s string) tea.KeyMsg {
 	}
 }
 
-// TestOnboardingWritesEnvChoice drives the env-var branch end to end and
-// asserts the written config carries the {env:...} directive.
+// TestOnboardingWritesEnvChoice drives the OpenRouter env-var branch end to end
+// and asserts the written config carries the {env:...} directive.
 func TestOnboardingWritesEnvChoice(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	m := New(Deps{FirstRun: true, ConfigPath: path})
 
-	// Method 0 is env; select it, then type the var name.
-	m = driveKeys(m, "enter") // choose "Environment variable"
+	// stepType: OpenRouter is index 0; select it.
+	m = driveKeys(m, "enter")
+	if m.onboard.step != stepChoose {
+		t.Fatalf("step = %v, want stepChoose", m.onboard.step)
+	}
+	// stepChoose: method 0 is env; select it, then type the var name.
+	m = driveKeys(m, "enter")
 	if m.onboard.step != stepInput {
 		t.Fatalf("step = %v, want stepInput", m.onboard.step)
 	}
@@ -91,8 +96,48 @@ func TestOnboardingWritesEnvChoice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.OpenRouter.APIKey != "{env:OPENROUTER_API_KEY}" {
-		t.Errorf("api_key = %q, want {env:OPENROUTER_API_KEY}", cfg.OpenRouter.APIKey)
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Type != config.TypeOpenRouter {
+		t.Fatalf("Providers = %+v, want one openrouter instance", cfg.Providers)
+	}
+	if cfg.Providers[0].APIKey != "{env:OPENROUTER_API_KEY}" {
+		t.Errorf("api_key = %q, want {env:OPENROUTER_API_KEY}", cfg.Providers[0].APIKey)
+	}
+}
+
+// TestOnboardingWritesLocalChoice drives the local-provider branch end to end
+// and asserts the written config carries the a1111 instance with the address.
+func TestOnboardingWritesLocalChoice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	m := New(Deps{FirstRun: true, ConfigPath: path})
+
+	// stepType: move to Local (index 1) and select it; goes straight to input.
+	m = driveKeys(m, "down", "enter")
+	if m.onboard.step != stepInput {
+		t.Fatalf("step = %v, want stepInput", m.onboard.step)
+	}
+	if m.onboard.selectedType() != typeLocal {
+		t.Fatalf("selectedType = %v, want typeLocal", m.onboard.selectedType())
+	}
+	m.onboard.input.SetValue("http://10.0.0.2:7860")
+
+	tm, cmd := m.handleKey(keyMsg("enter"))
+	m = tm.(Model)
+	if cmd == nil {
+		t.Fatal("expected a write command, got nil")
+	}
+	if wm, ok := cmd().(onboardWrittenMsg); !ok || wm.err != nil {
+		t.Fatalf("write result unexpected")
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Type != config.TypeA1111 {
+		t.Fatalf("Providers = %+v, want one a1111 instance", cfg.Providers)
+	}
+	if cfg.Providers[0].BaseURL != "http://10.0.0.2:7860" {
+		t.Errorf("base_url = %q, want http://10.0.0.2:7860", cfg.Providers[0].BaseURL)
 	}
 }
 
@@ -102,7 +147,9 @@ func TestOnboardingPasteRequiresConfirm(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	m := New(Deps{FirstRun: true, ConfigPath: path})
 
-	// Move cursor to the paste option (index 2), then select.
+	// stepType: choose OpenRouter.
+	m = driveKeys(m, "enter")
+	// stepChoose: move cursor to the paste option (index 2), then select.
 	m = driveKeys(m, "down", "down", "enter")
 	if m.onboard.selectedMethod() != methodPaste {
 		t.Fatalf("selected = %v, want methodPaste", m.onboard.selectedMethod())
@@ -135,8 +182,8 @@ func TestOnboardingPasteRequiresConfirm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.OpenRouter.APIKey != "sk-or-secret" {
-		t.Errorf("api_key = %q, want literal sk-or-secret", cfg.OpenRouter.APIKey)
+	if len(cfg.Providers) != 1 || cfg.Providers[0].APIKey != "sk-or-secret" {
+		t.Errorf("Providers = %+v, want literal sk-or-secret", cfg.Providers)
 	}
 }
 
@@ -144,12 +191,13 @@ func TestOnboardingPasteRequiresConfirm(t *testing.T) {
 // even when onboarding writes.
 func TestOnboardingNeverOverwrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	existing := []byte("provider: openrouter\nopenrouter:\n  api_key: \"{env:PREEXISTING}\"\n")
+	existing := []byte("providers:\n  - key: or\n    type: openrouter\n    api_key: \"{env:PREEXISTING}\"\n")
 	if err := os.WriteFile(path, existing, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	m := New(Deps{FirstRun: true, ConfigPath: path})
-	m = driveKeys(m, "enter") // env
+	m = driveKeys(m, "enter") // OpenRouter type
+	m = driveKeys(m, "enter") // env method
 	m.onboard.input.SetValue("NEW_VAR")
 	tm, cmd := m.handleKey(keyMsg("enter"))
 	m = tm.(Model)
@@ -164,5 +212,26 @@ func TestOnboardingNeverOverwrites(t *testing.T) {
 	}
 	if string(got) != string(existing) {
 		t.Errorf("existing config was overwritten:\n%s", got)
+	}
+}
+
+// 8.3: after onboarding writes the rebuilt config (the legacy-recovery entry
+// point sets FirstRun), the onboardWrittenMsg advances the model into the
+// picker and kicks off model loading.
+func TestOnboardingAdvancesToPicker(t *testing.T) {
+	m := New(Deps{
+		FirstRun:   true,
+		ConfigPath: filepath.Join(t.TempDir(), "config.yaml"),
+	})
+	if m.phase != phaseOnboarding {
+		t.Fatalf("start phase = %v, want onboarding", m.phase)
+	}
+	updated, cmd := m.Update(onboardWrittenMsg{})
+	m = updated.(Model)
+	if m.phase != phasePicker {
+		t.Errorf("phase after write = %v, want picker", m.phase)
+	}
+	if cmd == nil {
+		t.Error("expected a model-loading command after onboarding")
 	}
 }

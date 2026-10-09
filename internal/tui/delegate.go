@@ -34,15 +34,19 @@ func (d modelDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5fd2")).Bold(true).Background(headerBG)
 		cursor = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5fd2")).Bold(true).Background(headerBG).Render("> ")
 	}
-	name := nameStyle.Render(it.m.Name)
+	name := nameStyle.Render(it.t.Model.Name)
 
-	// Detail (price + caps): always muted, regardless of selection.
+	// Detail (provider tag + price + caps): always muted, regardless of
+	// selection, so it reads as secondary to the name.
 	detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8b85a0")).Background(headerBG)
 	var details []string
+	if it.t.ProviderKey != "" {
+		details = append(details, "@"+it.t.ProviderKey)
+	}
 	if price := priceLabel(it.price, it.priced, it.loading); price != "" {
 		details = append(details, price)
 	}
-	if caps := capHint(it.m.Capabilities); caps != "" {
+	if caps := capHint(it.t.Model.Capabilities); caps != "" {
 		details = append(details, caps)
 	}
 

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/provider"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // 4.1: the composed draft carries the attached reference images and prompt.

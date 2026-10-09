@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/rewdy/genifer/internal/provider"
@@ -70,15 +72,15 @@ func controlsFor(c provider.Capabilities) FormControls {
 }
 
 // preselectModel chooses which model index to highlight on launch: the last
-// used model if it is still offered, otherwise the first model (index 0), or
-// -1 when the list is empty.
-func preselectModel(models []provider.Model, lastModel string) int {
+// used model — matched by provider key and model id — if it is still offered,
+// otherwise the first model (index 0), or -1 when the list is empty.
+func preselectModel(models []taggedModel, lastProviderKey, lastModel string) int {
 	if len(models) == 0 {
 		return -1
 	}
 	if lastModel != "" {
 		for i, m := range models {
-			if m.ID == lastModel {
+			if m.Model.ID == lastModel && m.ProviderKey == lastProviderKey {
 				return i
 			}
 		}
@@ -111,4 +113,20 @@ func indexOfString(list []string, s string) int {
 		}
 	}
 	return -1
+}
+
+// modelsStatus builds the picker status line: the merged model count plus a
+// note of any offline providers, so an unreachable instance is surfaced
+// without blanking the picker.
+func modelsStatus(count int, offline map[string]bool) string {
+	s := fmt.Sprintf("%d models · / to filter", count)
+	if len(offline) > 0 {
+		keys := make([]string, 0, len(offline))
+		for k := range offline {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		s += fmt.Sprintf(" · offline: %s", strings.Join(keys, ", "))
+	}
+	return s
 }

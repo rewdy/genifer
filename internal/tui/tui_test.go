@@ -5,11 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/provider"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 func init() {
@@ -19,23 +19,29 @@ func init() {
 }
 
 func TestPreselectModel(t *testing.T) {
-	models := []provider.Model{
-		{ID: "a/one"}, {ID: "b/two"}, {ID: "c/three"},
+	models := []taggedModel{
+		{ProviderKey: "or", Model: provider.Model{ID: "a/one"}},
+		{ProviderKey: "or", Model: provider.Model{ID: "b/two"}},
+		{ProviderKey: "local", Model: provider.Model{ID: "c/three"}},
 	}
-	// Last model present -> its index.
-	if got := preselectModel(models, "b/two"); got != 1 {
-		t.Errorf("preselect(b/two) = %d, want 1", got)
+	// Last model present (matched by key+id) -> its index.
+	if got := preselectModel(models, "or", "b/two"); got != 1 {
+		t.Errorf("preselect(or,b/two) = %d, want 1", got)
+	}
+	// Right id but wrong provider key -> not matched, fall back to first.
+	if got := preselectModel(models, "local", "b/two"); got != 0 {
+		t.Errorf("preselect(local,b/two) = %d, want 0 (key mismatch)", got)
 	}
 	// Last model absent -> fall back to first.
-	if got := preselectModel(models, "x/gone"); got != 0 {
+	if got := preselectModel(models, "or", "x/gone"); got != 0 {
 		t.Errorf("preselect(absent) = %d, want 0", got)
 	}
 	// No remembered model -> first.
-	if got := preselectModel(models, ""); got != 0 {
+	if got := preselectModel(models, "", ""); got != 0 {
 		t.Errorf("preselect(empty) = %d, want 0", got)
 	}
 	// Empty list -> -1.
-	if got := preselectModel(nil, "a/one"); got != -1 {
+	if got := preselectModel(nil, "or", "a/one"); got != -1 {
 		t.Errorf("preselect(empty list) = %d, want -1", got)
 	}
 }
@@ -118,11 +124,11 @@ func TestPriceLabel(t *testing.T) {
 
 func TestModelDelegateRendersMutedDetail(t *testing.T) {
 	it := modelItem{
-		m:      provider.Model{Name: "ByteDance Seed: Seedream 5.0 Flash", Capabilities: provider.Capabilities{AcceptsReferenceImages: true, AspectRatios: []string{"1:1"}, SupportsSeed: true}},
+		t:      taggedModel{ProviderKey: "or", Model: provider.Model{Name: "ByteDance Seed: Seedream 5.0 Flash", Capabilities: provider.Capabilities{AcceptsReferenceImages: true, AspectRatios: []string{"1:1"}, SupportsSeed: true}}},
 		price:  provider.Price{Unit: provider.PricePerImage, USD: 0.018},
 		priced: true,
 	}
-	other := modelItem{m: provider.Model{Name: "Other Model"}}
+	other := modelItem{t: taggedModel{ProviderKey: "or", Model: provider.Model{Name: "Other Model"}}}
 
 	// A list whose cursor is on index 0. Rendering index 1 is the UNSELECTED
 	// case; rendering index 0 is the SELECTED case.

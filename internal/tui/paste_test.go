@@ -3,19 +3,19 @@ package tui
 import (
 	"testing"
 
-	"github.com/rewdy/genifer/internal/provider"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // composeModel builds a Model sitting in the compose phase with a single model
 // selected, whose reference-image capability is set by refCapable.
 func composeModel(refCapable bool, paster imagePaster) Model {
 	m := New(Deps{Paster: paster})
-	m.models = []provider.Model{{
+	m.models = []taggedModel{{ProviderKey: "test", Model: provider.Model{
 		ID:           "test/model",
 		Name:         "Test Model",
 		Capabilities: provider.Capabilities{AcceptsReferenceImages: refCapable},
-	}}
+	}}}
 	m.selected = 0
 	m.phase = phaseCompose
 	m.prompt.Focus()

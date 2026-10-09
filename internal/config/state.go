@@ -12,6 +12,10 @@ import (
 type State struct {
 	// LastModel is the id of the most recently selected model.
 	LastModel string `json:"last_model,omitempty"`
+	// LastProviderKey is the key of the provider instance that owns LastModel.
+	// Recorded alongside the model so pre-selection resolves to the correct
+	// provider when more than one is configured.
+	LastProviderKey string `json:"last_provider_key,omitempty"`
 	// LastAspectRatio is the most recently generated aspect ratio (e.g.
 	// "16:9"). Preferred as the default when a model offers it.
 	LastAspectRatio string `json:"last_aspect_ratio,omitempty"`
