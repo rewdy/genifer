@@ -68,3 +68,40 @@ func TestPricingCacheWrongVersion(t *testing.T) {
 		t.Errorf("wrong-version cache should be ignored, got %+v", got.Prices)
 	}
 }
+
+func TestPricingCacheKey(t *testing.T) {
+	if got := PricingCacheKey("local", "sd-xl"); got != "local/sd-xl" {
+		t.Errorf("PricingCacheKey = %q, want local/sd-xl", got)
+	}
+}
+
+func TestPricingCacheOldVersionIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pricing-cache.json")
+	// A version-1 cache (bare model-id keys) must be ignored after the bump.
+	os.WriteFile(path, []byte(`{"version":1,"fetched_at":"2026-10-07T12:00:00Z","prices":{"sd-xl":{"Unit":2,"USD":0.01}}}`), 0o600)
+	got := LoadPricingCache(path)
+	if len(got.Prices) != 0 {
+		t.Errorf("old-version cache should be ignored, got %+v", got.Prices)
+	}
+}
+
+func TestPricingCacheCompositeKeyRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pricing-cache.json")
+	in := PricingCache{
+		FetchedAt: time.Now(),
+		Prices: map[string]provider.Price{
+			PricingCacheKey("or", "shared-model"):    {Unit: provider.PricePerImage, USD: 0.02},
+			PricingCacheKey("local", "shared-model"): {Unit: provider.PriceFree},
+		},
+	}
+	if err := SavePricingCache(path, in); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got := LoadPricingCache(path)
+	if got.Prices[PricingCacheKey("or", "shared-model")].USD != 0.02 {
+		t.Errorf("or price = %+v", got.Prices[PricingCacheKey("or", "shared-model")])
+	}
+	if got.Prices[PricingCacheKey("local", "shared-model")].Unit != provider.PriceFree {
+		t.Errorf("local price = %+v", got.Prices[PricingCacheKey("local", "shared-model")])
+	}
+}

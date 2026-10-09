@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/rewdy/genifer/internal/config"
 	"github.com/rewdy/genifer/internal/provider"
+	"github.com/rewdy/genifer/internal/provider/a1111"
 	"github.com/rewdy/genifer/internal/provider/openrouter"
 	"github.com/rewdy/genifer/internal/tui"
 )
@@ -79,18 +81,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	cfg, err := config.Load(cfgPath)
-	if err != nil && err != config.ErrConfigNotFound {
+	cfg, outcome, err := loadConfig(cfgPath)
+	if err != nil {
 		return err
 	}
-	noConfig := err == config.ErrConfigNotFound
+	firstRun := outcome != loadValid
 
 	statePath, err := config.StatePath()
 	if err != nil {
 		return err
 	}
 
-	p, err := buildProvider(cfg)
+	registry, providerKeys, err := buildProviders(cfg)
 	if err != nil {
 		return err
 	}
@@ -107,17 +109,51 @@ func run() error {
 	}
 
 	deps := tui.Deps{
-		Provider:    p,
-		Config:      cfg,
-		StatePath:   statePath,
-		OutputDir:   outputDir,
-		OpenCommand: openCmd,
-		Version:     buildVersion(),
-		FirstRun:    noConfig,
-		ConfigPath:  cfgPath,
-		Paster:      tui.NewClipboardPaster(),
+		Providers:    registry,
+		ProviderKeys: providerKeys,
+		Config:       cfg,
+		StatePath:    statePath,
+		OutputDir:    outputDir,
+		OpenCommand:  openCmd,
+		Version:      buildVersion(),
+		FirstRun:     firstRun,
+		ConfigPath:   cfgPath,
+		Paster:       tui.NewClipboardPaster(),
 	}
 	return tui.Run(deps)
+}
+
+// loadOutcome classifies how config loading resolved, so run can decide between
+// a normal start and the first-run onboarding flow.
+type loadOutcome int
+
+const (
+	loadValid   loadOutcome = iota // a valid current-shape config loaded
+	loadMissing                    // no config.yaml present
+	loadLegacy                     // a legacy-shape config was detected and backed up
+)
+
+// loadConfig loads the config, resolving the three non-fatal outcomes:
+//   - missing   → built-in defaults, enter first-run onboarding
+//   - legacy    → back the file up, enter first-run onboarding on defaults
+//   - valid     → the loaded config
+//
+// A malformed file remains a hard error.
+func loadConfig(cfgPath string) (config.Config, loadOutcome, error) {
+	cfg, err := config.Load(cfgPath)
+	switch {
+	case err == nil:
+		return cfg, loadValid, nil
+	case errors.Is(err, config.ErrConfigNotFound):
+		return config.Default(), loadMissing, nil
+	case errors.Is(err, config.ErrLegacyConfig):
+		if _, bErr := config.BackupConfig(cfgPath); bErr != nil {
+			return config.Config{}, loadLegacy, bErr
+		}
+		return config.Default(), loadLegacy, nil
+	default:
+		return config.Config{}, loadValid, err
+	}
 }
 
 // configCommand implements `genifer config` and `genifer config path`.
@@ -138,7 +174,7 @@ func configCommand(args []string) error {
 		return nil
 	}
 
-	if _, err := config.WriteStarter(cfgPath, ""); err != nil {
+	if _, err := config.WriteStarter(cfgPath, config.StarterSpec{}); err != nil {
 		return err
 	}
 
@@ -156,22 +192,36 @@ func configCommand(args []string) error {
 	return nil
 }
 
-// buildProvider constructs the configured provider. The API key is resolved
+// buildProviders constructs the configured provider registry: a map keyed by
+// each instance's configured key, plus the ordered list of keys for stable
+// picker grouping. Each instance is dispatched on its Type; an unrecognized
+// type is a clear error naming the offending instance. API keys are resolved
 // lazily by the provider on first request.
-func buildProvider(cfg config.Config) (provider.Provider, error) {
-	switch cfg.Provider {
-	case "", "openrouter":
-		keyFn := func(ctx context.Context) (string, error) {
-			return cfg.OpenRouter.APIKey.Resolve(ctx)
+func buildProviders(cfg config.Config) (map[string]provider.Provider, []string, error) {
+	reg := make(map[string]provider.Provider, len(cfg.Providers))
+	keys := make([]string, 0, len(cfg.Providers))
+	for _, pc := range cfg.Providers {
+		pc := pc // capture per iteration for the key closure below
+		var p provider.Provider
+		switch pc.Type {
+		case config.TypeOpenRouter:
+			opts := []openrouter.Option{}
+			if pc.BaseURL != "" {
+				opts = append(opts, openrouter.WithBaseURL(pc.BaseURL))
+			}
+			keyFn := func(ctx context.Context) (string, error) {
+				return pc.APIKey.Resolve(ctx)
+			}
+			p = openrouter.New(keyFn, opts...)
+		case config.TypeA1111:
+			p = a1111.New(pc.BaseURL)
+		default:
+			return nil, nil, fmt.Errorf("provider %q: unknown type %q", pc.Key, pc.Type)
 		}
-		opts := []openrouter.Option{}
-		if cfg.OpenRouter.BaseURL != "" {
-			opts = append(opts, openrouter.WithBaseURL(cfg.OpenRouter.BaseURL))
-		}
-		return openrouter.New(keyFn, opts...), nil
-	default:
-		return nil, fmt.Errorf("unknown provider %q", cfg.Provider)
+		reg[pc.Key] = p
+		keys = append(keys, pc.Key)
 	}
+	return reg, keys, nil
 }
 
 // resolveOutputDir resolves the configured output directory. See

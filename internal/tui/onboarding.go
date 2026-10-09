@@ -3,9 +3,17 @@ package tui
 import (
 	"fmt"
 
-	"github.com/rewdy/genifer/internal/config"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rewdy/genifer/internal/config"
+)
+
+// providerType is the kind of provider chosen in the first onboarding step.
+type providerType int
+
+const (
+	typeOpenRouter providerType = iota // hosted OpenRouter
+	typeLocal                          // local A1111-compatible WebUI
 )
 
 // keyMethod is how the user chooses to provide the OpenRouter API key during
@@ -22,10 +30,23 @@ const (
 type onboardStep int
 
 const (
-	stepChoose  onboardStep = iota // selecting a key method
-	stepInput                      // typing the detail (env name / command / key)
+	stepType    onboardStep = iota // choosing the provider type
+	stepChoose                     // OpenRouter: selecting a key method
+	stepInput                      // typing the detail (env name / command / key / WebUI address)
 	stepConfirm                    // paste only: confirm plaintext storage
 )
+
+// typeChoice describes one selectable provider-type option.
+type typeChoice struct {
+	typ   providerType
+	label string
+	hint  string
+}
+
+var typeChoices = []typeChoice{
+	{typeOpenRouter, "OpenRouter", "hosted image models (needs an API key)"},
+	{typeLocal, "Local", "an A1111-compatible WebUI you run (A1111, Forge, ComfyUI)"},
+}
 
 // methodChoice describes one selectable key-provider option.
 type methodChoice struct {
@@ -42,19 +63,25 @@ var methodChoices = []methodChoice{
 
 // onboardState holds first-run onboarding UI state.
 type onboardState struct {
-	step     onboardStep
-	cursor   int // selected method in stepChoose
-	input    textinput.Model
-	writeErr error // surfaced if the config write failed
+	step       onboardStep
+	typeCursor int // selected provider type in stepType
+	cursor     int // selected key method in stepChoose
+	input      textinput.Model
+	writeErr   error // surfaced if the config write failed
 }
 
 func newOnboardState() onboardState {
 	ti := textinput.New()
 	ti.Prompt = "› "
-	return onboardState{step: stepChoose, input: ti}
+	return onboardState{step: stepType, input: ti}
 }
 
-// selectedMethod returns the method currently under the cursor.
+// selectedType returns the provider type currently under the type cursor.
+func (o onboardState) selectedType() providerType {
+	return typeChoices[o.typeCursor].typ
+}
+
+// selectedMethod returns the key method currently under the cursor.
 func (o onboardState) selectedMethod() keyMethod {
 	return methodChoices[o.cursor].method
 }
@@ -65,6 +92,8 @@ type onboardWrittenMsg struct{ err error }
 // handleOnboardingKey processes key presses during the onboarding phase.
 func (m Model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.onboard.step {
+	case stepType:
+		return m.handleOnboardType(msg)
 	case stepChoose:
 		return m.handleOnboardChoose(msg)
 	case stepInput:
@@ -75,11 +104,45 @@ func (m Model) handleOnboardingKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleOnboardType(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		m.quit = true
+		return m, tea.Quit
+	case "up", "k":
+		if m.onboard.typeCursor > 0 {
+			m.onboard.typeCursor--
+		}
+	case "down", "j":
+		if m.onboard.typeCursor < len(typeChoices)-1 {
+			m.onboard.typeCursor++
+		}
+	case "enter":
+		if m.onboard.selectedType() == typeLocal {
+			// Local: go straight to collecting the WebUI address.
+			m.onboard.step = stepInput
+			m.onboard.input.SetValue(config.DefaultA1111BaseURL)
+			m.onboard.input.Placeholder = config.DefaultA1111BaseURL
+			m.onboard.input.Focus()
+			m.status = "WebUI address"
+			return m, nil
+		}
+		// OpenRouter: choose how the key is provided.
+		m.onboard.step = stepChoose
+		m.status = "How should genifer get your OpenRouter API key?"
+	}
+	return m, nil
+}
+
 func (m Model) handleOnboardChoose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		m.quit = true
 		return m, tea.Quit
+	case "esc":
+		m.onboard.step = stepType
+		m.status = "Welcome to genifer"
+		return m, nil
 	case "up", "k":
 		if m.onboard.cursor > 0 {
 			m.onboard.cursor--
@@ -101,7 +164,12 @@ func (m Model) handleOnboardChoose(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleOnboardInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.onboard.step = stepChoose
+		// Back to the step that led here.
+		if m.onboard.selectedType() == typeLocal {
+			m.onboard.step = stepType
+		} else {
+			m.onboard.step = stepChoose
+		}
 		m.onboard.input.Blur()
 		m.status = "Welcome to genifer"
 		return m, nil
@@ -111,7 +179,7 @@ func (m Model) handleOnboardInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Paste requires an explicit plaintext-storage confirmation.
-		if m.onboard.selectedMethod() == methodPaste {
+		if m.onboard.selectedType() == typeOpenRouter && m.onboard.selectedMethod() == methodPaste {
 			m.onboard.step = stepConfirm
 			m.onboard.input.Blur()
 			m.status = "This key will be stored as plain text. Save it? (y/n)"
@@ -146,15 +214,27 @@ func (m Model) updateOnboarding(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// writeOnboardConfig builds the chosen api_key directive and writes a starter
+// writeOnboardConfig builds the chosen provider instance and writes a starter
 // config as a tea.Cmd (side effects stay out of Update). A write failure is
 // reported via onboardWrittenMsg so the session can continue on defaults.
 func (m Model) writeOnboardConfig() tea.Cmd {
-	apiKey := apiKeyValue(m.onboard.selectedMethod(), m.onboard.input.Value())
+	spec := m.onboard.starterSpec()
 	path := m.deps.ConfigPath
 	return func() tea.Msg {
-		_, err := config.WriteStarter(path, apiKey)
+		_, err := config.WriteStarter(path, spec)
 		return onboardWrittenMsg{err: err}
+	}
+}
+
+// starterSpec maps the current onboarding selections to the single provider
+// instance to write.
+func (o onboardState) starterSpec() config.StarterSpec {
+	if o.selectedType() == typeLocal {
+		return config.StarterSpec{Type: config.TypeA1111, BaseURL: o.input.Value()}
+	}
+	return config.StarterSpec{
+		Type:   config.TypeOpenRouter,
+		APIKey: apiKeyValue(o.selectedMethod(), o.input.Value()),
 	}
 }
 
@@ -191,4 +271,13 @@ func promptFor(method keyMethod) string {
 	default:
 		return "Paste your API key"
 	}
+}
+
+// onboardInputPrompt is the label shown above the input in stepInput, depending
+// on the chosen provider type.
+func (m Model) onboardInputPrompt() string {
+	if m.onboard.selectedType() == typeLocal {
+		return "WebUI address (e.g. " + config.DefaultA1111BaseURL + ")"
+	}
+	return promptFor(m.onboard.selectedMethod())
 }

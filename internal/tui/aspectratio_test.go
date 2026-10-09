@@ -5,21 +5,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/config"
-	"github.com/rewdy/genifer/internal/provider"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rewdy/genifer/internal/config"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // aspectModel builds a Model in the compose phase with a single model selected
 // whose offered aspect ratios are `ratios`, and a current selection of `sel`.
 func aspectModel(ratios []string, sel string) Model {
 	m := New(Deps{})
-	m.models = []provider.Model{{
+	m.models = []taggedModel{{ProviderKey: "test", Model: provider.Model{
 		ID:           "test/model",
 		Name:         "Test Model",
 		Capabilities: provider.Capabilities{AspectRatios: ratios},
-	}}
+	}}}
 	m.selected = 0
 	m.phase = phaseCompose
 	m.aspectRatio = sel
@@ -35,11 +35,11 @@ func TestChoosingModelDefaultsAspectRatio(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(Deps{StatePath: statePath})
-	m.models = []provider.Model{{
+	m.models = []taggedModel{{ProviderKey: "test", Model: provider.Model{
 		ID:           "test/model",
 		Name:         "Test Model",
 		Capabilities: provider.Capabilities{AspectRatios: []string{"1:1", "16:9", "9:16"}},
-	}}
+	}}}
 	m.rebuildItems()
 	m.picker.Select(0)
 
@@ -56,10 +56,10 @@ func TestChoosingModelDefaultsAspectRatio(t *testing.T) {
 // 3.2: with no remembered ratio, the default is the model's first offered.
 func TestChoosingModelDefaultsToFirstRatio(t *testing.T) {
 	m := New(Deps{StatePath: filepath.Join(t.TempDir(), "state.json")})
-	m.models = []provider.Model{{
+	m.models = []taggedModel{{ProviderKey: "test", Model: provider.Model{
 		ID:           "test/model",
 		Capabilities: provider.Capabilities{AspectRatios: []string{"4:3", "1:1"}},
-	}}
+	}}}
 	m.rebuildItems()
 	m.picker.Select(0)
 
@@ -234,10 +234,10 @@ func TestPickingModelPreservesAspectRatio(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(Deps{StatePath: statePath})
-	m.models = []provider.Model{{
+	m.models = []taggedModel{{ProviderKey: "test", Model: provider.Model{
 		ID:           "test/model",
 		Capabilities: provider.Capabilities{AspectRatios: []string{"1:1", "16:9"}},
-	}}
+	}}}
 	m.rebuildItems()
 	m.picker.Select(0)
 

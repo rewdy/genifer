@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/provider"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // 3.4: compose view shows the paste hint for a capable model and omits it for

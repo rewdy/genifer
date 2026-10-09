@@ -2,16 +2,19 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/rewdy/genifer/internal/config"
-	"github.com/rewdy/genifer/internal/gen"
-	"github.com/rewdy/genifer/internal/provider"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rewdy/genifer/internal/config"
+	"github.com/rewdy/genifer/internal/gen"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // maxPickerRows caps how many model rows are visible at once; the list scrolls
@@ -19,21 +22,32 @@ import (
 // this is a generous cap for tall terminals.
 const maxPickerRows = 20
 
-// modelItem adapts a provider.Model to a list.Item (and DefaultItem). It is
+// taggedModel pairs a provider.Model with the key of the provider instance that
+// offers it, so a model is identified by (ProviderKey, Model.ID) across the
+// picker, pricing, state, and generation routing.
+type taggedModel struct {
+	ProviderKey string
+	Model       provider.Model
+}
+
+// modelItem adapts a taggedModel to a list.Item (and DefaultItem). It is
 // filtered/searched on the model name and id, and shows a classified price in
 // its description once pricing has loaded.
 type modelItem struct {
-	m       provider.Model
+	t       taggedModel
 	price   provider.Price
 	priced  bool // pricing resolved (from cache or fetch)
 	loading bool // a pricing fetch is in flight
 }
 
 // Title returns the model name. (The custom modelDelegate composes the full
-// rendered line — name plus muted price/caps — so this is just the name.)
-func (i modelItem) Title() string { return i.m.Name }
+// rendered line — name plus provider tag and muted price/caps — so this is just
+// the name.)
+func (i modelItem) Title() string { return i.t.Model.Name }
 
-func (i modelItem) FilterValue() string { return i.m.Name + " " + i.m.ID }
+func (i modelItem) FilterValue() string {
+	return i.t.Model.Name + " " + i.t.Model.ID + " " + i.t.ProviderKey
+}
 
 // Description is unused: the single-line modelDelegate renders everything.
 func (i modelItem) Description() string { return "" }
@@ -53,16 +67,22 @@ const (
 
 // Deps are the collaborators the TUI needs, injected so it stays testable.
 type Deps struct {
-	Provider    provider.Provider
+	// Providers is the registry of configured provider instances keyed by their
+	// configured key. ProviderKeys is the same set in configured order, used for
+	// stable picker grouping and deterministic startup fan-out.
+	Providers    map[string]provider.Provider
+	ProviderKeys []string
+
 	Config      config.Config
 	StatePath   string
 	OutputDir   string
 	OpenCommand string
 	Version     string
 
-	// FirstRun is true when no config.yaml exists yet; it triggers the
-	// onboarding flow before the picker. ConfigPath is where onboarding writes
-	// the newly created config.
+	// FirstRun is true when no usable config.yaml exists yet (absent or a
+	// legacy file that was backed up); it triggers the onboarding flow before
+	// the picker. ConfigPath is where onboarding writes the newly created
+	// config.
 	FirstRun   bool
 	ConfigPath string
 
@@ -81,14 +101,17 @@ type Model struct {
 	phase         phase
 
 	// model picker
-	models      []provider.Model
+	models      []taggedModel
 	picker      list.Model
 	selected    int
 	modelsErr   error
 	modelsReady bool
+	// offline is the set of provider keys that could not be reached while
+	// populating the picker; shown as offline, their models omitted.
+	offline map[string]bool
 
 	// pricing
-	prices       map[string]provider.Price // modelID -> resolved price
+	prices       map[string]provider.Price // "providerKey/modelID" -> resolved price
 	pricingPend  int                       // outstanding pricing fetches
 	pricingDirty bool                      // fetched this session; needs cache write
 
@@ -172,14 +195,15 @@ func (m Model) Init() tea.Cmd {
 	if m.phase == phaseOnboarding {
 		return m.spinner.Tick
 	}
-	return tea.Batch(loadModels(m.deps.Provider), m.spinner.Tick)
+	return tea.Batch(loadModels(m.deps.Providers, m.deps.ProviderKeys), m.spinner.Tick)
 }
 
 // --- messages --------------------------------------------------------------
 
 type modelsLoadedMsg struct {
-	models []provider.Model
-	err    error
+	models  []taggedModel
+	offline map[string]bool
+	err     error // set only when no provider could be reached at all
 }
 
 type generatedMsg struct{ outcome gen.Outcome }
@@ -209,18 +233,77 @@ func pasteImageCmd(p imagePaster) tea.Cmd {
 	}
 }
 
-func loadModels(p provider.Provider) tea.Cmd {
+// loadModels fans out Models across every configured provider instance
+// concurrently, tags each returned model with its provider key, merges them in
+// configured key order, and records a per-instance offline marker for any
+// instance that fails. It returns err only when the registry is empty or every
+// instance failed, so one unreachable provider never blanks the picker.
+func loadModels(registry map[string]provider.Provider, keys []string) tea.Cmd {
 	return func() tea.Msg {
-		models, err := p.Models(context.Background())
-		return modelsLoadedMsg{models: models, err: err}
+		type result struct {
+			models []provider.Model
+			err    error
+		}
+		results := make([]result, len(keys))
+		var wg sync.WaitGroup
+		for i, key := range keys {
+			wg.Add(1)
+			go func(i int, p provider.Provider) {
+				defer wg.Done()
+				// Bounded timeout so an unreachable instance fails fast and
+				// never stalls the picker behind a slow dial.
+				ctx, cancel := context.WithTimeout(context.Background(), modelLoadTimeout)
+				defer cancel()
+				models, err := p.Models(ctx)
+				results[i] = result{models: models, err: err}
+			}(i, registry[key])
+		}
+		wg.Wait()
+
+		var merged []taggedModel
+		offline := map[string]bool{}
+		var reachable int
+		var lastErr error
+		for i, key := range keys {
+			r := results[i]
+			if r.err != nil {
+				offline[key] = true
+				lastErr = r.err
+				continue
+			}
+			reachable++
+			for _, mdl := range r.models {
+				merged = append(merged, taggedModel{ProviderKey: key, Model: mdl})
+			}
+		}
+
+		msg := modelsLoadedMsg{models: merged, offline: offline}
+		// Only a true all-failed outcome is an app-level error; otherwise the
+		// reachable providers' models stand and failures are isolated as offline.
+		if reachable == 0 {
+			if lastErr != nil {
+				msg.err = lastErr
+			} else {
+				msg.err = errNoProviders
+			}
+		}
+		return msg
 	}
 }
 
-// priceLoadedMsg carries one model's resolved price (or a fetch error).
+// modelLoadTimeout bounds each provider's startup Models call so an unreachable
+// instance (e.g. a local WebUI that is not running) fails fast.
+const modelLoadTimeout = 10 * time.Second
+
+// errNoProviders is the model-list error when the registry is empty.
+var errNoProviders = errors.New("no providers configured")
+
+// priceLoadedMsg carries one model's resolved price (or a fetch error), keyed
+// by the composite "providerKey/modelID".
 type priceLoadedMsg struct {
-	modelID string
-	price   provider.Price
-	err     error
+	key   string // config.PricingCacheKey(providerKey, modelID)
+	price provider.Price
+	err   error
 }
 
 // initPricing seeds m.prices from the on-disk cache when it is fresh. When the
@@ -233,27 +316,32 @@ func (m Model) initPricing() Model {
 	}
 	cache := config.LoadPricingCache(path)
 	if cache.Fresh(timeNow()) {
-		for id, p := range cache.Prices {
-			m.prices[id] = p
+		for key, p := range cache.Prices {
+			m.prices[key] = p
 		}
 	}
 	return m
 }
 
 // pricingCmds returns background fetches for every model missing a cached
-// price. Each returns a priceLoadedMsg; the picker fills in live.
+// price, each resolved against its owning provider instance. Each returns a
+// priceLoadedMsg; the picker fills in live.
 func (m *Model) pricingCmds() tea.Cmd {
 	var cmds []tea.Cmd
-	p := m.deps.Provider
-	for _, mdl := range m.models {
-		if _, ok := m.prices[mdl.ID]; ok {
+	for _, tm := range m.models {
+		key := config.PricingCacheKey(tm.ProviderKey, tm.Model.ID)
+		if _, ok := m.prices[key]; ok {
 			continue // already have a fresh cached price
 		}
-		id := mdl.ID
+		p := m.deps.Providers[tm.ProviderKey]
+		if p == nil {
+			continue
+		}
+		modelID := tm.Model.ID
 		m.pricingPend++
 		cmds = append(cmds, func() tea.Msg {
-			price, err := p.Pricing(context.Background(), id)
-			return priceLoadedMsg{modelID: id, price: price, err: err}
+			price, err := p.Pricing(context.Background(), modelID)
+			return priceLoadedMsg{key: key, price: price, err: err}
 		})
 	}
 	if len(cmds) == 0 {
@@ -287,9 +375,10 @@ func (m Model) savePricingCmd() tea.Cmd {
 func (m *Model) rebuildItems() {
 	sel := m.picker.Index()
 	items := make([]list.Item, len(m.models))
-	for i, mdl := range m.models {
-		it := modelItem{m: mdl}
-		if p, ok := m.prices[mdl.ID]; ok {
+	for i, tm := range m.models {
+		it := modelItem{t: tm}
+		key := config.PricingCacheKey(tm.ProviderKey, tm.Model.ID)
+		if p, ok := m.prices[key]; ok {
 			it.price, it.priced = p, true
 		} else {
 			it.loading = m.pricingPend > 0
@@ -321,7 +410,8 @@ func (m *Model) removeLastRefImage() bool {
 // separated from generate so the draft contents (prompt, model, attached
 // reference images) are directly testable.
 func (m Model) composeDraft() gen.Draft {
-	return gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
+	_, modelID := m.currentSelection()
+	return gen.Draft{Prompt: m.prompt.Value(), Model: modelID, AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
 }
 
 // persistAspectRatio records the current aspect-ratio selection as the
@@ -341,13 +431,22 @@ func (m Model) generate() (Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	d := m.composeDraft()
-	p := m.deps.Provider
+	// Route to the provider instance that owns the selected model.
+	providerKey, _ := m.currentSelection()
+	p := m.deps.Providers[providerKey]
 	dir := m.deps.OutputDir
 	cmd := func() tea.Msg {
+		if p == nil {
+			return generatedMsg{outcome: gen.Outcome{Failure: gen.FailureOther, Err: errNoProviderForModel}}
+		}
 		return generatedMsg{outcome: gen.Run(ctx, p, d, dir)}
 	}
 	return m, tea.Batch(cmd, m.spinner.Tick)
 }
+
+// errNoProviderForModel is used when the selected model's provider key does not
+// resolve in the registry (should not happen in normal operation).
+var errNoProviderForModel = errors.New("no provider for selected model")
 
 // --- update ----------------------------------------------------------------
 
@@ -361,18 +460,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case modelsLoadedMsg:
 		m.modelsReady = true
-		m.models, m.modelsErr = msg.models, msg.err
+		m.models, m.modelsErr, m.offline = msg.models, msg.err, msg.offline
 		if msg.err != nil {
 			m.status = modelErrorText(msg.err)
 			return m, nil
 		}
 		m = m.initPricing()
 		m.rebuildItems()
-		last := config.LoadState(m.deps.StatePath).LastModel
-		if idx := preselectModel(m.models, last); idx >= 0 {
+		s := config.LoadState(m.deps.StatePath)
+		if idx := preselectModel(m.models, s.LastProviderKey, s.LastModel); idx >= 0 {
 			m.picker.Select(idx)
 		}
-		m.status = fmt.Sprintf("%d models · / to filter", len(m.models))
+		m.status = modelsStatus(len(m.models), m.offline)
 		return m, m.pricingCmds()
 
 	case priceLoadedMsg:
@@ -380,7 +479,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prices = map[string]provider.Price{}
 		}
 		if msg.err == nil {
-			m.prices[msg.modelID] = msg.price
+			m.prices[msg.key] = msg.price
 			m.pricingDirty = true
 		}
 		if m.pricingPend > 0 {
@@ -424,7 +523,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.onboard.writeErr = msg.err
 		}
 		m.status = "Loading models..."
-		return m, tea.Batch(loadModels(m.deps.Provider), m.spinner.Tick)
+		return m, tea.Batch(loadModels(m.deps.Providers, m.deps.ProviderKeys), m.spinner.Tick)
 
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -496,10 +595,11 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "enter":
 		if it, ok := m.picker.SelectedItem().(modelItem); ok {
-			m.selected = indexOfModel(m.models, it.m.ID)
+			m.selected = indexOfModel(m.models, it.t.ProviderKey, it.t.Model.ID)
 			s := config.LoadState(m.deps.StatePath)
-			m.aspectRatio = pickAspectRatio(it.m.Capabilities.AspectRatios, s.LastAspectRatio)
-			s.LastModel = it.m.ID
+			m.aspectRatio = pickAspectRatio(it.t.Model.Capabilities.AspectRatios, s.LastAspectRatio)
+			s.LastModel = it.t.Model.ID
+			s.LastProviderKey = it.t.ProviderKey
 			_ = config.SaveState(m.deps.StatePath, s)
 			m.phase = phaseCompose
 			m.prompt.Focus()
@@ -514,10 +614,11 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// indexOfModel returns the index of the model with id, or -1.
-func indexOfModel(models []provider.Model, id string) int {
-	for i, mdl := range models {
-		if mdl.ID == id {
+// indexOfModel returns the index of the model identified by (providerKey, id),
+// or -1.
+func indexOfModel(models []taggedModel, providerKey, id string) int {
+	for i, tm := range models {
+		if tm.ProviderKey == providerKey && tm.Model.ID == id {
 			return i
 		}
 	}
@@ -688,12 +789,22 @@ func (m Model) openCmd() tea.Cmd {
 	}
 }
 
-func (m Model) currentModelID() string {
+// currentSelection returns the (providerKey, modelID) of the active model: the
+// committed selection when one exists, otherwise the row currently highlighted
+// in the picker. Both are empty when nothing is selected.
+func (m Model) currentSelection() (providerKey, modelID string) {
 	if m.selected >= 0 && m.selected < len(m.models) {
-		return m.models[m.selected].ID
+		tm := m.models[m.selected]
+		return tm.ProviderKey, tm.Model.ID
 	}
 	if it, ok := m.picker.SelectedItem().(modelItem); ok {
-		return it.m.ID
+		return it.t.ProviderKey, it.t.Model.ID
 	}
-	return ""
+	return "", ""
+}
+
+// currentModelID returns just the model id of the active model, for display.
+func (m Model) currentModelID() string {
+	_, id := m.currentSelection()
+	return id
 }

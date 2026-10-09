@@ -38,7 +38,7 @@ func TestStateInvalid(t *testing.T) {
 func TestSaveStateDoesNotTouchConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("provider: openrouter\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("providers:\n  - key: or\n    type: openrouter\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(cfgPath)
@@ -76,5 +76,33 @@ func TestStateAspectRatioEmptyWhenMissing(t *testing.T) {
 	}
 	if got := LoadState(path); got.LastAspectRatio != "" {
 		t.Errorf("invalid file: LastAspectRatio = %q, want empty", got.LastAspectRatio)
+	}
+}
+
+// TestStateProviderKeyPreservesOthers verifies that persisting the model and
+// its provider key via read-modify-write keeps a previously remembered aspect
+// ratio, and that the provider key round-trips.
+func TestStateProviderKeyPreservesOthers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	// First remember an aspect ratio.
+	if err := SaveState(path, State{LastAspectRatio: "16:9"}); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+	// Then persist a model + provider key, read-modify-write.
+	s := LoadState(path)
+	s.LastModel = "sd-xl"
+	s.LastProviderKey = "local"
+	if err := SaveState(path, s); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+	got := LoadState(path)
+	if got.LastModel != "sd-xl" {
+		t.Errorf("LastModel = %q, want sd-xl", got.LastModel)
+	}
+	if got.LastProviderKey != "local" {
+		t.Errorf("LastProviderKey = %q, want local", got.LastProviderKey)
+	}
+	if got.LastAspectRatio != "16:9" {
+		t.Errorf("LastAspectRatio = %q, want 16:9 (should be preserved)", got.LastAspectRatio)
 	}
 }

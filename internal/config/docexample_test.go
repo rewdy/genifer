@@ -9,10 +9,13 @@ import (
 // docExampleConfig mirrors the example config.yaml in docs/config.md. If the
 // documented example changes, keep this in sync — it guards that the doc is
 // loadable.
-const docExampleConfig = `provider: openrouter
-
-openrouter:
-  api_key: "{env:OPENROUTER_API_KEY}"
+const docExampleConfig = `providers:
+  - key: or
+    type: openrouter
+    api_key: "{env:OPENROUTER_API_KEY}"
+  - key: local
+    type: a1111
+    base_url: "http://127.0.0.1:7860"
 
 output_dir: "{env:HOME}/Pictures/genifer"
 
@@ -28,10 +31,13 @@ func TestDocExampleLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("documented example config.yaml failed to load: %v", err)
 	}
-	if cfg.Provider != "openrouter" {
-		t.Errorf("Provider = %q", cfg.Provider)
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("len(Providers) = %d, want 2", len(cfg.Providers))
 	}
-	if cfg.OpenRouter.APIKey != "{env:OPENROUTER_API_KEY}" {
-		t.Errorf("APIKey = %q", cfg.OpenRouter.APIKey)
+	if cfg.Providers[0].Type != TypeOpenRouter || cfg.Providers[0].APIKey != "{env:OPENROUTER_API_KEY}" {
+		t.Errorf("Providers[0] = %+v", cfg.Providers[0])
+	}
+	if cfg.Providers[1].Type != TypeA1111 || cfg.Providers[1].BaseURL != "http://127.0.0.1:7860" {
+		t.Errorf("Providers[1] = %+v", cfg.Providers[1])
 	}
 }

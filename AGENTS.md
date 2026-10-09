@@ -12,13 +12,14 @@ image models. Single Go module, `github.com/rewdy/genifer`, Go 1.24+.
 ## Layout
 
 ```
-main.go                       Entry point: wiring, --version, provider/dir resolution
-internal/config/              config.yaml + app-owned state.json + pricing cache + value directives
+main.go                       Entry point: wiring, --version, provider registry/dir resolution
+internal/config/              config.yaml (provider list) + app-owned state.json + pricing cache + value directives
 internal/provider/            Provider interface (the backend seam) and shared types
 internal/provider/openrouter/ OpenRouter implementation of Provider
+internal/provider/a1111/      Local A1111-compatible WebUI implementation of Provider
 internal/gen/                 Generation workflow: compose, run (async+cancel), save, open
 internal/tui/                 Bubble Tea shell: header, picker, capability-adaptive form, view
-docs/                         User docs (config schema, OpenRouter notes)
+docs/                         User docs (config schema, OpenRouter notes, local provider)
 openspec/                     Spec-driven change proposals and archived specs
 ```
 
@@ -26,8 +27,16 @@ openspec/                     Spec-driven change proposals and archived specs
 
 - **`provider.Provider` is the one seam to the outside world.** The rest of the
   app never sees provider-specific request/response shapes. Add a backend by
-  implementing the interface in `internal/provider/provider.go`; wire it in
-  `buildProvider` in `main.go`. Only `openrouter` exists today.
+  implementing the interface in `internal/provider/provider.go`; wire it into
+  the registry in `buildProviders` in `main.go`. `openrouter` (hosted) and
+  `a1111` (local A1111-compatible WebUI) exist today.
+- **The app holds a provider registry, not a singleton.** `buildProviders`
+  returns a `map[string]provider.Provider` keyed by each config instance's
+  `key`, plus the ordered key list; `tui.Deps` carries both. A model is
+  identified by `(providerKey, modelID)` across the picker, pricing cache,
+  last-used state, and generation routing, so two providers may offer the same
+  model id. The picker merges models across instances and isolates an
+  unreachable one as offline rather than erroring.
 - **Dependencies flow one way:** `main` → `tui` → (`gen`, `provider`, `config`).
   `provider` and `config` have no knowledge of the TUI. Keep it that way.
 - **TUI is a Bubble Tea `Model`** (`internal/tui/model.go`): `Deps` is injected
@@ -42,10 +51,13 @@ openspec/                     Spec-driven change proposals and archived specs
   (`ErrAuth`, `ErrInsufficientCredit`, `ErrGenerationFailed`,
   `ErrReferenceImagesUnsupported`) so the UI can present actionable messages
   instead of raw strings. Reuse these rather than inventing new error text.
-- **Config file ownership:** `config.yaml` is user-owned — never write to it.
-  `state.json` and `pricing-cache.json` are app-owned and rewritten freely. A
-  missing config is a soft fallback to defaults; a malformed config is a hard
-  error (no silent fallback).
+- **Config file ownership:** `config.yaml` is user-owned — never written during
+  normal operation. The one sanctioned replacement is legacy recovery: a legacy
+  single-provider file is detected on load (`ErrLegacyConfig`), backed up to
+  `config.yaml.bak` (non-colliding), and rebuilt via onboarding. `state.json`
+  and `pricing-cache.json` are app-owned and rewritten freely. A missing config
+  is a soft fallback to defaults; a malformed config is a hard error (no silent
+  fallback).
 - **Config directory** is `~/.config/genifer` on every platform (honoring
   `XDG_CONFIG_HOME`), set in `config.Dir()` — not the OS-specific dir.
 - **Value directives:** config strings support `{env:NAME}` and `{cmd:...}`.

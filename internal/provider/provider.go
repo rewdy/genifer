@@ -123,4 +123,9 @@ var (
 	// ErrReferenceImagesUnsupported indicates reference images were supplied for
 	// a model that does not accept them.
 	ErrReferenceImagesUnsupported = errors.New("model does not accept reference images")
+	// ErrUnreachable indicates the provider's endpoint could not be reached
+	// (e.g. a local WebUI that is not running). It is distinct from ErrAuth so
+	// the UI can mark the provider offline rather than report a credential
+	// problem.
+	ErrUnreachable = errors.New("provider endpoint unreachable")
 )
