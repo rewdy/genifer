@@ -127,11 +127,14 @@ func New(d Deps) Model {
 	ta.Placeholder = "Describe the image you want..."
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false
+	ta.FocusedStyle, ta.BlurredStyle = promptTextareaStyles()
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
 	picker := list.New(nil, modelDelegate{}, 40, maxPickerRows)
+	picker.Styles = pickerStyles()
+	picker.FilterInput = filterInputStyles(picker.FilterInput)
 	picker.SetShowTitle(false)
 	picker.SetShowStatusBar(false)
 	picker.SetShowHelp(false)

@@ -45,10 +45,6 @@ var (
 	patternFadeTo   = [3]int{0x9a, 0x5a, 0xe6} // purple
 )
 
-// headerBG is the background color used across the whole app so the user's
-// terminal background never clashes with the TUI.
-const headerBG = lipgloss.Color("#17141f")
-
 // RenderHeader renders the full-width styled header for the given width.
 func RenderHeader(width int, version string) string {
 	if width < 1 {

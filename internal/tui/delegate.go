@@ -51,9 +51,14 @@ func (d modelDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		line += detailStyle.Render("  " + strings.Join(details, "  "))
 	}
 
-	// Truncate to the list width so a long line never wraps into two rows.
+	// Truncate to the list width so a long line never wraps into two rows, then
+	// fill any remaining columns with the app background so the terminal's
+	// default never shows through on a short row.
 	if w := m.Width(); w > 0 {
 		line = ansi.Truncate(line, w, "…")
+		if pad := w - ansi.StringWidth(line); pad > 0 {
+			line += rowFill(pad)
+		}
 	}
 	fmt.Fprint(w, line)
 }

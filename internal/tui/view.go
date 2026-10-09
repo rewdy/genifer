@@ -52,7 +52,14 @@ func (m Model) View() string {
 	header := RenderHeader(m.width, m.deps.Version)
 	body := m.bodyView()
 	footer := m.footerView()
-	content := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+	// Match the header's horizontal padding so the content is not butted right
+	// against the terminal edge.
+	region := lipgloss.JoinVertical(lipgloss.Left, body, "", footer)
+	padded := lipgloss.NewStyle().Background(headerBG).Padding(0, 2).Render(region)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, "", padded)
+	// Re-assert the app background across every line so no embedded widget can
+	// leave the terminal's default background showing through.
+	content = paintBackground(content, m.width)
 
 	// Fill the whole terminal with the app background so the user's terminal
 	// background never shows through / clashes with the TUI.
@@ -182,7 +189,11 @@ func (m Model) composeView() string {
 	if ctrls.ShowReference && len(m.refImages) > 0 {
 		pills = "\n" + refImagePills(len(m.refImages))
 	}
-	return fmt.Sprintf("Model: %s%s%s\n\n%s", m.currentModelID(), hint, pills, m.prompt.View())
+	// Paint the prompt over the input background so the whole input box reads as
+	// one area. The textarea's own placeholder path leaves its padding unstyled,
+	// so this is repaired here rather than left to the terminal default.
+	prompt := paintOver(m.prompt.View(), m.prompt.Width(), inputBG)
+	return fmt.Sprintf("Model: %s%s%s\n\n%s", m.currentModelID(), hint, pills, prompt)
 }
 
 // styleAspectSel highlights the cursor row in the aspect-ratio dialog.
