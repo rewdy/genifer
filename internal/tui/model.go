@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"github.com/rewdy/genifer/internal/config"
@@ -113,6 +114,11 @@ type Model struct {
 
 	// result
 	outcome gen.Outcome
+
+	// lastDraft is the exact draft used for the in-flight / just-completed
+	// generation (including the minted seed), captured when generation fires so
+	// re-generate can repeat it precisely.
+	lastDraft gen.Draft
 
 	// onboarding (first run only)
 	onboard onboardState
@@ -319,9 +325,21 @@ func (m *Model) removeLastRefImage() bool {
 
 // composeDraft builds the generation draft from current model state. It is
 // separated from generate so the draft contents (prompt, model, attached
-// reference images) are directly testable.
+// reference images) are directly testable. For a seed-capable model it mints a
+// random seed when none is set, so the seed is always known to genifer (shown,
+// reused, reproducible); a non-seed model is left with a nil seed.
 func (m Model) composeDraft() gen.Draft {
-	return gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
+	d := gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
+	if m.currentCaps().SupportsSeed && d.Seed == nil {
+		s := mintSeed()
+		d.Seed = &s
+	}
+	return d
+}
+
+// mintSeed returns a random non-negative int64 seed.
+func mintSeed() int64 {
+	return rand.Int63()
 }
 
 // persistAspectRatio records the current aspect-ratio selection as the
@@ -338,9 +356,15 @@ func (m Model) persistAspectRatio() {
 
 func (m Model) generate() (Model, tea.Cmd) {
 	m.persistAspectRatio()
+	return m.runDraft(m.composeDraft())
+}
+
+// runDraft starts a generation for the exact draft d, capturing it as lastDraft
+// so re-generate can repeat it precisely.
+func (m Model) runDraft(d gen.Draft) (Model, tea.Cmd) {
+	m.lastDraft = d
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	d := m.composeDraft()
 	p := m.deps.Provider
 	dir := m.deps.OutputDir
 	cmd := func() tea.Msg {
@@ -504,6 +528,14 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.phase = phaseCompose
 			m.prompt.Focus()
 			m.status = "Compose your prompt"
+			// If reference images are carried over (e.g. try-again-with-new-model)
+			// but the newly chosen model cannot accept them, drop them and tell
+			// the user rather than erroring at generate time.
+			if !it.m.Capabilities.AcceptsReferenceImages && len(m.refImages) > 0 {
+				n := len(m.refImages)
+				m.refImages = nil
+				m.status = fmt.Sprintf("Dropped %d reference image(s) — this model does not accept them", n)
+			}
 		}
 		return m, nil
 	}
@@ -668,7 +700,38 @@ func (m Model) handleResultKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "Generating..."
 			return m.generate()
 		}
-	case "enter", "n":
+	case "t":
+		// Try again with a new model: back to the picker, preserving prompt,
+		// aspect ratio, and reference images (dropped later if the newly chosen
+		// model cannot accept them).
+		if m.outcome.Failure == gen.FailureNone {
+			return m.tryNewModel()
+		}
+	case "n":
+		if m.outcome.Failure == gen.FailureNone {
+			// New image: clear prompt and reference images, keep the model.
+			return m.newImage()
+		}
+		// Failure path keeps the historical "new" behavior.
+		m.phase = phaseCompose
+		m.prompt.Focus()
+		m.status = "Compose your prompt"
+	case "g":
+		// Re-generate reusing the same parameters (and seed) to reproduce.
+		if m.outcome.Failure == gen.FailureNone {
+			return m.regenerate(false)
+		}
+	case "v":
+		// Re-generate with a fresh seed to vary (seed-capable models only).
+		if m.outcome.Failure == gen.FailureNone && m.lastDraftSeedCapable() {
+			return m.regenerate(true)
+		}
+	case "enter":
+		// Historical convenience: on the failure path, enter starts a new
+		// prompt. On success it reproduces (same as re-generate).
+		if m.outcome.Failure == gen.FailureNone {
+			return m.regenerate(false)
+		}
 		m.phase = phaseCompose
 		m.prompt.Focus()
 		m.status = "Compose your prompt"
@@ -677,6 +740,51 @@ func (m Model) handleResultKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// lastDraftSeedCapable reports whether the just-run draft used a seed (i.e. the
+// model is seed-capable), so vary makes sense.
+func (m Model) lastDraftSeedCapable() bool {
+	return m.lastDraft.Seed != nil
+}
+
+// tryNewModel returns to the picker preserving the composed parameters. On the
+// subsequent model selection, reference images are dropped if the new model
+// cannot accept them.
+func (m Model) tryNewModel() (tea.Model, tea.Cmd) {
+	m.phase = phasePicker
+	m.status = "Choose a model to try again"
+	return m, nil
+}
+
+// newImage clears the prompt and reference images, keeps the selected model,
+// and returns to compose. The next generation mints a fresh seed.
+func (m Model) newImage() (tea.Model, tea.Cmd) {
+	m.prompt.SetValue("")
+	m.refImages = nil
+	m.phase = phaseCompose
+	m.prompt.Focus()
+	m.status = "Compose your prompt"
+	return m, nil
+}
+
+// regenerate re-runs the just-completed generation. For a seed-capable model,
+// vary mints a fresh seed (and the result shows it); reuse repeats the prior
+// seed to reproduce. For a non-seed model it simply repeats lastDraft.
+func (m Model) regenerate(vary bool) (tea.Model, tea.Cmd) {
+	d := m.lastDraft
+	switch {
+	case !m.lastDraftSeedCapable():
+		m.status = "Re-generating…"
+	case vary:
+		s := mintSeed()
+		d.Seed = &s
+		m.status = fmt.Sprintf("Re-generating with new seed %d…", s)
+	default:
+		m.status = fmt.Sprintf("Re-generating with seed %d…", *d.Seed)
+	}
+	m.phase = phaseGenerating
+	return m.runDraft(d)
 }
 
 func (m Model) openCmd() tea.Cmd {

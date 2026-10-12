@@ -26,6 +26,7 @@ const (
 type Outcome struct {
 	Path    string      // saved file path on success
 	CostUSD float64     // actual cost in USD on success (0 if unreported)
+	Seed    *int64      // seed used for this generation (nil when none / unsupported)
 	Failure FailureKind // FailureNone on success
 	Err     error       // underlying error when Failure != FailureNone
 }
@@ -85,7 +86,13 @@ func Run(ctx context.Context, p provider.Provider, d Draft, dir string) Outcome 
 	if err != nil {
 		return Outcome{Failure: FailureSave, Err: err}
 	}
-	return Outcome{Path: path, CostUSD: res.CostUSD}
+	// Carry the seed used forward: the minted draft seed, preferring a
+	// provider-reported value when present.
+	seed := d.Seed
+	if res.Seed != nil {
+		seed = res.Seed
+	}
+	return Outcome{Path: path, CostUSD: res.CostUSD, Seed: seed}
 }
 
 func classify(ctx context.Context, err error) FailureKind {

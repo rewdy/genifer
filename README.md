@@ -11,6 +11,9 @@ A cute, full-screen terminal UI for generating images with
 - Form that adapts to each model's capabilities (aspect ratio, seed, image-to-image)
 - Image-to-image via reference images, when the model supports it
 - Saves generated images and offers to open them (or auto-open)
+- Iterate from the result screen: try a new model, start fresh, or re-generate
+- Auto-generates and shows a seed for seed-capable models, so you can reproduce
+  or vary a result
 - Shows the actual cost of each generation
 - Config values can come from env vars or external commands — secrets stay out of config
 
@@ -109,7 +112,11 @@ genifer
 4. At the review screen, press `enter` to generate or `e` to edit.
 5. While generating, press `esc` to cancel.
 6. On success, the image is saved and you can press `o` to open it
-   (or enable `auto_open` to skip the prompt).
+   (or enable `auto_open` to skip the prompt). From here you can also `t` try
+   the same prompt on a new model, `n` start a new image, or `g` re-generate.
+   For seed-capable models genifer auto-generates a seed and shows it, so you
+   can `g` reproduce the result with the same seed or `v` vary it with a fresh
+   one.
 
 ### Keys
 
@@ -119,7 +126,8 @@ genifer
 | Compose    | `ctrl+s` review · `esc` back · `ctrl+a` aspect ratio (when offered) |
 | Review     | `enter` generate · `e` edit               |
 | Generating | `esc` cancel                              |
-| Result     | `o` open · `r` retry · `enter` new · `q` quit |
+| Result (success) | `o` open · `t` try new model · `n` new image · `g` re-generate (seed models: same seed) · `v` re-generate varying the seed · `q` quit |
+| Result (failure) | `r` retry (when retryable) · `enter` new · `q` quit |
 
 ## Account requirements
 

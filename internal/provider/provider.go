@@ -78,6 +78,10 @@ type GenerateResult struct {
 	// CostUSD is the actual cost of this generation in US dollars, as reported
 	// by the provider. Zero when the provider did not report a cost.
 	CostUSD float64
+	// Seed, when non-nil, is the seed the provider reported using for this
+	// generation. It is opportunistic: genifer mints and tracks its own seed
+	// and does not depend on this being set.
+	Seed *int64
 }
 
 // PriceUnit classifies how a model bills for output images.

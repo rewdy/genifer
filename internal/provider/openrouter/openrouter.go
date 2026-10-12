@@ -270,10 +270,21 @@ type generateResponse struct {
 	Data []struct {
 		B64JSON   string `json:"b64_json"`
 		MediaType string `json:"media_type"`
+		Seed      *int64 `json:"seed"`
 	} `json:"data"`
+	Seed  *int64 `json:"seed"`
 	Usage struct {
 		Cost float64 `json:"cost"`
 	} `json:"usage"`
+}
+
+// reportedSeed returns the provider-reported seed, preferring a per-image value
+// over a top-level one. Nil when the provider reported none.
+func (r generateResponse) reportedSeed() *int64 {
+	if len(r.Data) > 0 && r.Data[0].Seed != nil {
+		return r.Data[0].Seed
+	}
+	return r.Seed
 }
 
 func (c *Client) Generate(ctx context.Context, r provider.GenerateRequest) (provider.GenerateResult, error) {
@@ -335,7 +346,7 @@ func (c *Client) Generate(ctx context.Context, r provider.GenerateRequest) (prov
 	if err != nil {
 		return provider.GenerateResult{}, fmt.Errorf("openrouter: decoding image bytes: %w", err)
 	}
-	return provider.GenerateResult{Data: data, MediaType: parsed.Data[0].MediaType, CostUSD: parsed.Usage.Cost}, nil
+	return provider.GenerateResult{Data: data, MediaType: parsed.Data[0].MediaType, CostUSD: parsed.Usage.Cost, Seed: parsed.reportedSeed()}, nil
 }
 
 // capabilitiesFor looks up a single model's capabilities via Models.

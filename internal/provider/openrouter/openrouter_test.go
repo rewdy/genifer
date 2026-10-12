@@ -106,6 +106,43 @@ func TestGenerateSuccess(t *testing.T) {
 	}
 }
 
+// 1.3 provider-reported seed is parsed opportunistically from the response,
+// from either a per-image or top-level field, and is nil when absent.
+func TestGenerateParsesReportedSeed(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("img"))
+	cases := []struct {
+		name string
+		body string
+		want *int64
+	}{
+		{"per-image seed", `{"data":[{"b64_json":"` + b64 + `","media_type":"image/png","seed":42}]}`, ptrInt64(42)},
+		{"top-level seed", `{"data":[{"b64_json":"` + b64 + `","media_type":"image/png"}],"seed":7}`, ptrInt64(7)},
+		{"no seed", `{"data":[{"b64_json":"` + b64 + `","media_type":"image/png"}]}`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			res, err := c.Generate(context.Background(), provider.GenerateRequest{Model: "m", Prompt: "cat"})
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			switch {
+			case tc.want == nil && res.Seed != nil:
+				t.Errorf("Seed = %d, want nil", *res.Seed)
+			case tc.want != nil && res.Seed == nil:
+				t.Errorf("Seed = nil, want %d", *tc.want)
+			case tc.want != nil && *res.Seed != *tc.want:
+				t.Errorf("Seed = %d, want %d", *res.Seed, *tc.want)
+			}
+		})
+	}
+}
+
+func ptrInt64(v int64) *int64 { return &v }
+
 // 4.3 reference images allowed for a capable model
 func TestGenerateWithReferenceSupported(t *testing.T) {
 	b64 := base64.StdEncoding.EncodeToString([]byte("img"))

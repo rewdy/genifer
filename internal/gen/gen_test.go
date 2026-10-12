@@ -202,3 +202,32 @@ func TestRunEmptyPrompt(t *testing.T) {
 		t.Fatalf("err = %v, want ErrEmptyPrompt", out.Err)
 	}
 }
+
+// 1.2: the outcome exposes the seed used — the minted draft seed by default,
+// and a provider-reported seed when one is present.
+func TestRunOutcomeCarriesSeed(t *testing.T) {
+	dir := t.TempDir()
+	draftSeed := int64(123)
+
+	// Minted draft seed, provider reports none: outcome carries the draft seed.
+	p := fakeProvider{res: provider.GenerateResult{Data: []byte("x"), MediaType: "image/png"}}
+	out := Run(context.Background(), p, Draft{Prompt: "p", Model: "m", Seed: &draftSeed}, dir)
+	if out.Seed == nil || *out.Seed != draftSeed {
+		t.Fatalf("Seed = %v, want %d", out.Seed, draftSeed)
+	}
+
+	// Provider reports a seed: it is preferred over the draft seed.
+	reported := int64(999)
+	p = fakeProvider{res: provider.GenerateResult{Data: []byte("x"), MediaType: "image/png", Seed: &reported}}
+	out = Run(context.Background(), p, Draft{Prompt: "p", Model: "m", Seed: &draftSeed}, dir)
+	if out.Seed == nil || *out.Seed != reported {
+		t.Fatalf("Seed = %v, want provider-reported %d", out.Seed, reported)
+	}
+
+	// No seed anywhere (non-seed model): outcome carries nil.
+	p = fakeProvider{res: provider.GenerateResult{Data: []byte("x"), MediaType: "image/png"}}
+	out = Run(context.Background(), p, Draft{Prompt: "p", Model: "m"}, dir)
+	if out.Seed != nil {
+		t.Fatalf("Seed = %d, want nil for non-seed model", *out.Seed)
+	}
+}

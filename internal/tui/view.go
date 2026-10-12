@@ -266,6 +266,9 @@ func (m Model) resultView() string {
 		if m.outcome.CostUSD > 0 {
 			lines += "\n" + styleFaint.Render(fmt.Sprintf("cost: $%.4f", m.outcome.CostUSD))
 		}
+		if m.outcome.Seed != nil {
+			lines += "\n" + styleFaint.Render(fmt.Sprintf("seed: %d", *m.outcome.Seed))
+		}
 		return lines + "\n"
 	}
 	return styleErr.Render("✗ " + m.outcome.Message())
@@ -314,7 +317,13 @@ func (m Model) footerView() string {
 		keys = []string{k("esc", "cancel")}
 	case phaseResult:
 		if m.outcome.Failure == gen.FailureNone {
-			keys = []string{k("o", "open"), k("enter", "new"), k("q", "quit")}
+			keys = []string{k("o", "open"), k("t", "try new model"), k("n", "new image")}
+			if m.outcome.Seed != nil {
+				keys = append(keys, k("g", "re-gen (same seed)"), k("v", "re-gen (vary seed)"))
+			} else {
+				keys = append(keys, k("g", "re-generate"))
+			}
+			keys = append(keys, k("q", "quit"))
 		} else if m.outcome.Retryable() {
 			keys = []string{k("r", "retry"), k("enter", "new"), k("q", "quit")}
 		} else {
