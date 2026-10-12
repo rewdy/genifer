@@ -39,6 +39,11 @@ auto_open: false
 # Override the per-OS command used to open images. Omit to use the OS default
 # (macOS: open, Linux: xdg-open, Windows: start).
 # open_command: "feh"
+
+# Record successful generations to history-cache.json so you can recall and
+# reuse past prompts. Enabled by default; set to false to turn it off. History
+# keeps every entry — delete history-cache.json to clear it.
+history: true
 `
 
 // StarterContent returns the commented starter config.yaml body with apiKey

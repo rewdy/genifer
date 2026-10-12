@@ -64,3 +64,37 @@ func TestLoadMalformed(t *testing.T) {
 		t.Fatal("malformed file must not be reported as not-found")
 	}
 }
+
+// 2.1: history defaults to enabled; an absent key means enabled, and only an
+// explicit `history: false` disables it.
+func TestHistoryEnabledResolution(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+		want bool
+	}{
+		{"absent", "provider: openrouter\n", true},
+		{"true", "provider: openrouter\nhistory: true\n", true},
+		{"false", "provider: openrouter\nhistory: false\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if got := cfg.HistoryEnabled(); got != tc.want {
+				t.Errorf("HistoryEnabled() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	// A Default() config (no file) is enabled.
+	if !Default().HistoryEnabled() {
+		t.Error("Default() should have history enabled")
+	}
+}

@@ -50,13 +50,20 @@ const (
 	phaseReview                  // confirming the prompt
 	phaseGenerating              // request in flight
 	phaseResult                  // showing outcome, offering open
+	phaseHistory                 // browsing past prompts
 )
+
+// historyLoadLimit bounds how many of the most-recent history entries the view
+// loads into the list. The store itself retains every entry; the full record
+// lives in the on-disk history file.
+const historyLoadLimit = 25
 
 // Deps are the collaborators the TUI needs, injected so it stays testable.
 type Deps struct {
 	Provider    provider.Provider
 	Config      config.Config
 	StatePath   string
+	HistoryPath string
 	OutputDir   string
 	OpenCommand string
 	Version     string
@@ -120,6 +127,17 @@ type Model struct {
 	// re-generate can repeat it precisely.
 	lastDraft gen.Draft
 
+	// history
+	history          list.Model            // list of loaded past prompts
+	historyEntries   []config.HistoryEntry // the loaded (bounded) entries
+	historyMoreExist bool                  // store holds more than were loaded
+	historyPrev      phase                 // phase to return to on esc
+
+	// reuseSeed, when set, is a seed carried from a reused history entry; it is
+	// applied to the next composed draft for a seed-capable model instead of
+	// minting a fresh one. Cleared once consumed.
+	reuseSeed *int64
+
 	// onboarding (first run only)
 	onboard onboardState
 
@@ -147,6 +165,15 @@ func New(d Deps) Model {
 	picker.SetShowPagination(true)
 	picker.DisableQuitKeybindings() // we own quit; the list must not exit the app
 
+	history := list.New(nil, historyDelegate{}, 40, maxPickerRows)
+	history.Styles = pickerStyles()
+	history.FilterInput = filterInputStyles(history.FilterInput)
+	history.SetShowTitle(false)
+	history.SetShowStatusBar(false)
+	history.SetShowHelp(false)
+	history.SetShowPagination(true)
+	history.DisableQuitKeybindings()
+
 	if d.Paster == nil {
 		d.Paster = newClipboardPaster()
 	}
@@ -166,6 +193,7 @@ func New(d Deps) Model {
 		prompt:   ta,
 		spinner:  sp,
 		picker:   picker,
+		history:  history,
 		selected: -1,
 		status:   status,
 		onboard:  onboard,
@@ -330,9 +358,15 @@ func (m *Model) removeLastRefImage() bool {
 // reused, reproducible); a non-seed model is left with a nil seed.
 func (m Model) composeDraft() gen.Draft {
 	d := gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
-	if m.currentCaps().SupportsSeed && d.Seed == nil {
-		s := mintSeed()
-		d.Seed = &s
+	if m.currentCaps().SupportsSeed {
+		switch {
+		case m.reuseSeed != nil:
+			s := *m.reuseSeed
+			d.Seed = &s
+		case d.Seed == nil:
+			s := mintSeed()
+			d.Seed = &s
+		}
 	}
 	return d
 }
@@ -356,7 +390,9 @@ func (m Model) persistAspectRatio() {
 
 func (m Model) generate() (Model, tea.Cmd) {
 	m.persistAspectRatio()
-	return m.runDraft(m.composeDraft())
+	d := m.composeDraft()
+	m.reuseSeed = nil // consumed into the draft
+	return m.runDraft(d)
 }
 
 // runDraft starts a generation for the exact draft d, capturing it as lastDraft
@@ -381,6 +417,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.prompt.SetWidth(max(20, msg.Width-4))
 		m.picker.SetSize(max(20, msg.Width-4), pickerHeight(msg.Height))
+		m.history.SetSize(max(20, msg.Width-4), pickerHeight(msg.Height))
 		return m, nil
 
 	case modelsLoadedMsg:
@@ -422,10 +459,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.outcome = msg.outcome
 		m.phase = phaseResult
 		m.status = msg.outcome.Message()
-		if m.outcome.Failure == gen.FailureNone && m.deps.Config.AutoOpen {
-			return m, m.openCmd()
+		var cmds []tea.Cmd
+		if m.outcome.Failure == gen.FailureNone {
+			if hc := m.recordHistoryCmd(); hc != nil {
+				cmds = append(cmds, hc)
+			}
+			if m.deps.Config.AutoOpen {
+				cmds = append(cmds, m.openCmd())
+			}
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case pastedImageMsg:
 		if msg.err != nil {
@@ -469,6 +512,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.picker, cmd = m.picker.Update(msg)
 		return m, cmd
 	}
+	if m.phase == phaseHistory {
+		var cmd tea.Cmd
+		m.history, cmd = m.history.Update(msg)
+		return m, cmd
+	}
 	return m, nil
 }
 
@@ -501,6 +549,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case phaseResult:
 		return m.handleResultKey(msg)
+	case phaseHistory:
+		return m.handleHistoryKey(msg)
 	}
 	return m, nil
 }
@@ -518,6 +568,8 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		m.quit = true
 		return m, tea.Quit
+	case "h":
+		return m.openHistory(phasePicker), nil
 	case "enter":
 		if it, ok := m.picker.SelectedItem().(modelItem); ok {
 			m.selected = indexOfModel(m.models, it.m.ID)
@@ -604,6 +656,9 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "ctrl+s", "alt+enter":
 		return m.submitCompose()
+	case "ctrl+p":
+		// Open the history view to recall and reuse a past prompt.
+		return m.openHistory(phaseCompose), nil
 	}
 	var cmd tea.Cmd
 	m.prompt, cmd = m.prompt.Update(msg)
@@ -762,6 +817,7 @@ func (m Model) tryNewModel() (tea.Model, tea.Cmd) {
 func (m Model) newImage() (tea.Model, tea.Cmd) {
 	m.prompt.SetValue("")
 	m.refImages = nil
+	m.reuseSeed = nil
 	m.phase = phaseCompose
 	m.prompt.Focus()
 	m.status = "Compose your prompt"

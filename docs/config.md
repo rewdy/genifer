@@ -9,6 +9,10 @@ genifer reads two files from your platform config directory
 - `pricing-cache.json` — **genifer owns this.** It caches per-model prices for
   24h so the picker doesn't refetch pricing on every launch. Safe to delete; it
   will be rebuilt. Don't hand-edit it.
+- `history-cache.json` — **genifer owns this.** It records your past prompts and
+  their parameters (see `history` below). It keeps every entry, so to clear your
+  history just delete this file. Safe to delete; it will be recreated on the next
+  generation. Don't hand-edit it.
 
 If `config.yaml` is missing, genifer runs with defaults and tells you where it
 looked. A malformed `config.yaml` is a hard error (it won't silently fall back).
@@ -53,6 +57,12 @@ auto_open: false
 # Override the per-OS command used to open images. Omit to use the OS default
 # (macOS: open, Linux: xdg-open, Windows: start).
 # open_command: "feh"
+
+# Record successful generations to history-cache.json so you can recall and
+# reuse past prompts. Enabled by default; set to false to turn it off (nothing
+# is written and the history view reports that it's off). History keeps every
+# entry — delete history-cache.json to clear it.
+history: true
 ```
 
 ## Value directives

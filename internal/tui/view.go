@@ -89,6 +89,8 @@ func (m Model) bodyView() string {
 		return m.spinner.View() + " Generating... (esc to cancel)"
 	case phaseResult:
 		return m.resultView()
+	case phaseHistory:
+		return m.historyView()
 	}
 	return ""
 }
@@ -297,9 +299,9 @@ func (m Model) footerView() string {
 			keys = []string{k("y", "save"), k("n", "back")}
 		}
 	case phasePicker:
-		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("q", "quit")}
+		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("h", "history"), k("q", "quit")}
 	case phaseCompose:
-		keys = []string{k("ctrl+s", "review"), k("esc", "back")}
+		keys = []string{k("ctrl+s", "review"), k("esc", "back"), k("ctrl+p", "history")}
 		if len(m.currentCaps().AspectRatios) > 0 {
 			keys = append(keys, k("ctrl+a", "aspect ratio"))
 		}
@@ -315,6 +317,8 @@ func (m Model) footerView() string {
 		keys = []string{k("enter", "generate"), k("e", "edit")}
 	case phaseGenerating:
 		keys = []string{k("esc", "cancel")}
+	case phaseHistory:
+		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "reuse"), k("esc", "back")}
 	case phaseResult:
 		if m.outcome.Failure == gen.FailureNone {
 			keys = []string{k("o", "open"), k("t", "try new model"), k("n", "new image")}

@@ -14,6 +14,8 @@ A cute, full-screen terminal UI for generating images with
 - Iterate from the result screen: try a new model, start fresh, or re-generate
 - Auto-generates and shows a seed for seed-capable models, so you can reproduce
   or vary a result
+- Remembers your past prompts (on-device, opt-out) so you can recall and reuse
+  them
 - Shows the actual cost of each generation
 - Config values can come from env vars or external commands — secrets stay out of config
 
@@ -122,12 +124,25 @@ genifer
 
 | Context    | Keys                                      |
 | ---------- | ----------------------------------------- |
-| Picker     | `↑/↓` move · `/` filter · `enter` select · `q` quit |
-| Compose    | `ctrl+s` review · `esc` back · `ctrl+a` aspect ratio (when offered) |
+| Picker     | `↑/↓` move · `/` filter · `enter` select · `h` history · `q` quit |
+| Compose    | `ctrl+s` review · `esc` back · `ctrl+p` history · `ctrl+a` aspect ratio (when offered) |
 | Review     | `enter` generate · `e` edit               |
+| History    | `↑/↓` move · `/` filter · `enter` reuse · `esc` back |
 | Generating | `esc` cancel                              |
 | Result (success) | `o` open · `t` try new model · `n` new image · `g` re-generate (seed models: same seed) · `v` re-generate varying the seed · `q` quit |
 | Result (failure) | `r` retry (when retryable) · `enter` new · `q` quit |
+
+### History
+
+genifer records each successful generation — prompt, model, aspect ratio, the
+seed used, saved path, and timestamp — to `history-cache.json` in the config
+dir. Press `h` from the picker or `ctrl+p` while composing to open the history
+view, then `enter` to reuse a prompt (its aspect ratio and seed are reapplied
+where the selected model supports them). The view shows your most-recent
+prompts; the full record lives in the file, and the view points you to it when
+you page past the loaded entries or filter to no matches. History is on-device
+only, kept forever (delete the file to clear it), and can be turned off with
+`history: false` in `config.yaml`.
 
 ## Account requirements
 

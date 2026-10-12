@@ -90,6 +90,11 @@ func run() error {
 		return err
 	}
 
+	historyPath, err := config.HistoryPath()
+	if err != nil {
+		return err
+	}
+
 	p, err := buildProvider(cfg)
 	if err != nil {
 		return err
@@ -110,6 +115,7 @@ func run() error {
 		Provider:    p,
 		Config:      cfg,
 		StatePath:   statePath,
+		HistoryPath: historyPath,
 		OutputDir:   outputDir,
 		OpenCommand: openCmd,
 		Version:     buildVersion(),

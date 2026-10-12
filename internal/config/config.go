@@ -28,6 +28,18 @@ type Config struct {
 	// OpenCommand overrides the per-OS default command used to open images.
 	// May be a {env:}/{cmd:} directive. Empty means use the OS default.
 	OpenCommand Value `yaml:"open_command"`
+
+	// History enables persisting a record of successful generations to the
+	// app-owned history file. It defaults to enabled; an absent key means
+	// enabled. It is a pointer so an unset value is distinguishable from an
+	// explicit false — resolve it through HistoryEnabled, not directly.
+	History *bool `yaml:"history"`
+}
+
+// HistoryEnabled reports whether prompt history should be recorded. An unset
+// field (nil) means enabled; only an explicit `history: false` disables it.
+func (c Config) HistoryEnabled() bool {
+	return c.History == nil || *c.History
 }
 
 // OpenRouterConfig holds OpenRouter-specific settings.
