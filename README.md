@@ -124,10 +124,11 @@ genifer
 
 | Context    | Keys                                      |
 | ---------- | ----------------------------------------- |
-| Picker     | `↑/↓` move · `/` filter · `enter` select · `h` history · `q` quit |
+| Picker     | `↑/↓` move · `/` filter · `enter` select · `h` history · `c` settings · `q` quit |
 | Compose    | `ctrl+s` review · `esc` back · `↑/↓` recall history · `ctrl+p` history list · `ctrl+a` aspect ratio (when offered) |
 | Review     | `enter` generate · `e` edit               |
 | History    | `↑/↓` move · `/` filter · `enter` reuse · `esc` back |
+| Settings   | `↑/↓` move · `space` toggle · `enter` save · `esc` cancel |
 | Generating | `esc` cancel                              |
 | Result (success) | `o` open · `t` try new model · `n` new image · `g` re-generate (seed models: same seed) · `v` re-generate varying the seed · `q` quit |
 | Result (failure) | `r` retry (when retryable) · `enter` new · `q` quit |

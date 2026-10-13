@@ -205,6 +205,12 @@ func displayHistoryPath(path string) string {
 	if path == "" {
 		return "~/.config/genifer/history-cache.json"
 	}
+	return displayPath(path)
+}
+
+// displayPath shortens a path for display, replacing the user's home directory
+// prefix with ~ when applicable. An empty path is returned unchanged.
+func displayPath(path string) string {
 	if home := homeDir(); home != "" && strings.HasPrefix(path, home) {
 		return "~" + strings.TrimPrefix(path, home)
 	}

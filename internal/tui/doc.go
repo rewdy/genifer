@@ -1,6 +1,6 @@
 // Package tui implements the full-screen Bubble Tea application shell: header,
-// model picker, capability-adaptive generate form, prompt history, status, and
-// keybindings.
+// model picker, capability-adaptive generate form, prompt history, an in-tool
+// settings editor, status, and keybindings.
 //
 // For reference-capable models the compose form attaches reference images two
 // ways: a clipboard paste keypress (read out-of-band via the imagePaster seam)

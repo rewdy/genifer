@@ -51,6 +51,7 @@ const (
 	phaseGenerating              // request in flight
 	phaseResult                  // showing outcome, offering open
 	phaseHistory                 // browsing past prompts
+	phaseConfig                  // editing settings (save location, auto-open, history)
 )
 
 // historyLoadLimit bounds how many of the most-recent history entries the view
@@ -88,6 +89,11 @@ type Deps struct {
 // Model is the root Bubble Tea model.
 type Model struct {
 	deps Deps
+
+	// outputDir is the session's effective image output directory. It starts
+	// from Deps.OutputDir and can be changed live via the config view, so a new
+	// save location applies to the next generation without a restart.
+	outputDir string
 
 	width, height int
 	phase         phase
@@ -153,6 +159,10 @@ type Model struct {
 	// onboarding (first run only)
 	onboard onboardState
 
+	// config view (phaseConfig)
+	cfg        configState
+	configPrev phase // phase to return to on esc / confirm
+
 	status string
 	quit   bool
 }
@@ -201,6 +211,7 @@ func New(d Deps) Model {
 
 	return Model{
 		deps:        d,
+		outputDir:   d.OutputDir,
 		phase:       start,
 		prompt:      ta,
 		spinner:     sp,
@@ -415,7 +426,7 @@ func (m Model) runDraft(d gen.Draft) (Model, tea.Cmd) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	p := m.deps.Provider
-	dir := m.deps.OutputDir
+	dir := m.outputDir
 	cmd := func() tea.Msg {
 		return generatedMsg{outcome: gen.Run(ctx, p, d, dir)}
 	}
@@ -530,6 +541,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history, cmd = m.history.Update(msg)
 		return m, cmd
 	}
+	if m.phase == phaseConfig {
+		return m.updateConfig(msg)
+	}
 	return m, nil
 }
 
@@ -564,6 +578,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleResultKey(msg)
 	case phaseHistory:
 		return m.handleHistoryKey(msg)
+	case phaseConfig:
+		return m.handleConfigKey(msg)
 	}
 	return m, nil
 }
@@ -583,6 +599,8 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "h":
 		return m.openHistory(phasePicker), nil
+	case "c":
+		return m.openConfig(phasePicker), nil
 	case "enter":
 		if it, ok := m.picker.SelectedItem().(modelItem); ok {
 			m.selected = indexOfModel(m.models, it.m.ID)

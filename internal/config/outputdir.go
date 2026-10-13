@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,4 +53,27 @@ func DefaultOutputDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, "Pictures", "genifer"), nil
+}
+
+// ValidateOutputDir checks that raw resolves to a directory genifer can write
+// generated images into, returning the resolved absolute path on success. It
+// resolves raw via ResolveOutputDir, then probes that the directory is
+// creatable and writable by creating it (if needed) and writing a temporary
+// file. getwd/homeDir/defaultDir are injected to match ResolveOutputDir.
+func ValidateOutputDir(raw string, getwd, homeDir func() (string, error), defaultDir string) (resolved string, err error) {
+	resolved, err = ResolveOutputDir(raw, getwd, homeDir, defaultDir)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(resolved, 0o755); err != nil {
+		return "", fmt.Errorf("config: save location %q is not creatable: %w", resolved, err)
+	}
+	probe, err := os.CreateTemp(resolved, ".genifer-write-probe-*")
+	if err != nil {
+		return "", fmt.Errorf("config: save location %q is not writable: %w", resolved, err)
+	}
+	name := probe.Name()
+	probe.Close()
+	os.Remove(name)
+	return resolved, nil
 }

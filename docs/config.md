@@ -30,6 +30,15 @@ genifer config path   # print the config.yaml path and exit
 overwrites an existing one. `genifer config path` just prints the path (handy
 for scripting) without creating or opening anything.
 
+You can also edit the common settings from inside the TUI: press `c` on the
+model picker to open the config view, which is a direct editor of your
+`config.yaml`. It edits three keys — `output_dir` (save location), `auto_open`,
+and `history` — writing them back to the file while leaving your comments and
+other settings (such as the `api_key` directive) intact. A changed save
+location and auto-open preference also take effect for the current session, so
+you don't need to restart. Everything else in `config.yaml` stays
+file-/onboarding-managed.
+
 New users don't need either command: on first launch with no config, genifer
 walks you through creating one — see the first-run section of the
 [README](../README.md).
