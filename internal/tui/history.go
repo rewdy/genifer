@@ -85,6 +85,22 @@ func relativeTime(t, now time.Time) string {
 	}
 }
 
+// loadRecentEntries reads the history store and returns at most historyLoadLimit
+// of the most-recent entries (newest-first) along with whether the store holds
+// more than were returned. An empty slice is returned when history is disabled.
+func (m Model) loadRecentEntries() (entries []config.HistoryEntry, moreExist bool) {
+	if !m.deps.Config.HistoryEnabled() {
+		return nil, false
+	}
+	cache := config.LoadHistory(m.deps.HistoryPath)
+	total := len(cache.Entries)
+	entries = cache.Entries
+	if total > historyLoadLimit {
+		entries = entries[:historyLoadLimit]
+	}
+	return entries, total > len(entries)
+}
+
 // openHistory loads the history store, keeps the newest historyLoadLimit
 // entries into the list, records whether more exist on disk, and switches to
 // phaseHistory (remembering where to return on esc).
@@ -100,14 +116,9 @@ func (m Model) openHistory(from phase) Model {
 		return m
 	}
 
-	cache := config.LoadHistory(m.deps.HistoryPath)
-	total := len(cache.Entries)
-	entries := cache.Entries
-	if total > historyLoadLimit {
-		entries = entries[:historyLoadLimit]
-	}
+	entries, moreExist := m.loadRecentEntries()
 	m.historyEntries = entries
-	m.historyMoreExist = total > len(entries)
+	m.historyMoreExist = moreExist
 
 	items := make([]list.Item, len(entries))
 	for i, e := range entries {
@@ -276,4 +287,91 @@ func (m Model) historyFilterActive() bool {
 func (m Model) historyAtEnd() bool {
 	items := m.history.VisibleItems()
 	return len(items) > 0 && m.history.Index() == len(items)-1
+}
+
+// --- inline Up/Down recall -------------------------------------------------
+
+// recallActive reports whether a recall session is in progress (the prompt
+// currently holds a recalled entry rather than the user's draft).
+func (m Model) recallActive() bool { return m.recallIndex != recallInactive }
+
+// recallEntries returns the entries recall walks over. During an active session
+// it uses the snapshot taken at session start (m.historyEntries); otherwise it
+// loads the current recent entries so a fresh session reflects the latest
+// history.
+func (m Model) recallEntries() []config.HistoryEntry {
+	if m.recallActive() {
+		return m.historyEntries
+	}
+	entries, _ := m.loadRecentEntries()
+	return entries
+}
+
+// recallPrevious steps to an older entry. Starting from the draft it snapshots
+// the current prompt and applies the newest entry; subsequent calls walk toward
+// older entries, clamped at the oldest loaded. A no-op when there is nothing to
+// recall.
+func (m Model) recallPrevious() Model {
+	entries := m.recallEntries()
+	if len(entries) == 0 {
+		return m
+	}
+	if !m.recallActive() {
+		m.recallDraft = m.prompt.Value()
+		m.historyEntries = entries // freeze the set for this session
+		m.recallIndex = 0
+	} else if m.recallIndex < len(entries)-1 {
+		m.recallIndex++
+	} else {
+		return m // already at the oldest loaded entry
+	}
+	return m.applyRecalled(entries[m.recallIndex])
+}
+
+// recallNext steps toward a newer entry. Stepping forward past the newest entry
+// restores the snapshot draft and ends the session. A no-op when not recalling.
+func (m Model) recallNext() Model {
+	if !m.recallActive() {
+		return m
+	}
+	entries := m.historyEntries
+	if m.recallIndex > 0 {
+		m.recallIndex--
+		return m.applyRecalled(entries[m.recallIndex])
+	}
+	// Past the newest: restore the user's draft and end the session.
+	return m.restoreRecallDraft()
+}
+
+// applyRecalled puts a recalled entry into compose via the shared reuse path
+// (prompt + aspect ratio + seed where supported), keeping recallIndex intact.
+func (m Model) applyRecalled(e config.HistoryEntry) Model {
+	idx := m.recallIndex
+	m = m.reuseHistoryEntry(e)
+	// reuseHistoryEntry switches to compose and sets status for list selection;
+	// recall stays in compose and keeps its own session index.
+	m.recallIndex = idx
+	m.phase = phaseCompose
+	m.status = fmt.Sprintf("History %d of %d (↑ older · ↓ newer)", idx+1, len(m.historyEntries))
+	m.prompt.CursorEnd()
+	return m
+}
+
+// restoreRecallDraft returns the prompt to the snapshot draft and ends the
+// session. A draft carries no recalled seed.
+func (m Model) restoreRecallDraft() Model {
+	m.prompt.SetValue(m.recallDraft)
+	m.reuseSeed = nil
+	m.recallIndex = recallInactive
+	m.recallDraft = ""
+	m.prompt.CursorEnd()
+	m.status = "Compose your prompt"
+	return m
+}
+
+// endRecallSession ends any active recall session without changing the prompt,
+// used when the user edits the text so the next Up starts fresh from the newest.
+func (m *Model) endRecallSession() {
+	m.recallIndex = recallInactive
+	m.recallDraft = ""
 }

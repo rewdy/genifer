@@ -125,7 +125,7 @@ genifer
 | Context    | Keys                                      |
 | ---------- | ----------------------------------------- |
 | Picker     | `↑/↓` move · `/` filter · `enter` select · `h` history · `q` quit |
-| Compose    | `ctrl+s` review · `esc` back · `ctrl+p` history · `ctrl+a` aspect ratio (when offered) |
+| Compose    | `ctrl+s` review · `esc` back · `↑/↓` recall history · `ctrl+p` history list · `ctrl+a` aspect ratio (when offered) |
 | Review     | `enter` generate · `e` edit               |
 | History    | `↑/↓` move · `/` filter · `enter` reuse · `esc` back |
 | Generating | `esc` cancel                              |
@@ -143,6 +143,13 @@ prompts; the full record lives in the file, and the view points you to it when
 you page past the loaded entries or filter to no matches. History is on-device
 only, kept forever (delete the file to clear it), and can be turned off with
 `history: false` in `config.yaml`.
+
+You can also recall prompts inline while composing, like a shell: press `↑` to
+step back through recent prompts and `↓` to come forward again. Recall only
+kicks in at the edges of the text — `↑` on the first line, `↓` on the last —
+so the arrows still move the cursor within a multi-line prompt. Pressing `↓`
+past the newest entry restores whatever you were typing before you started
+recalling.
 
 ## Account requirements
 

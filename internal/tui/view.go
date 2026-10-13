@@ -301,7 +301,7 @@ func (m Model) footerView() string {
 	case phasePicker:
 		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("h", "history"), k("q", "quit")}
 	case phaseCompose:
-		keys = []string{k("ctrl+s", "review"), k("esc", "back"), k("ctrl+p", "history")}
+		keys = []string{k("ctrl+s", "review"), k("esc", "back"), k("↑/↓", "history"), k("ctrl+p", "history list")}
 		if len(m.currentCaps().AspectRatios) > 0 {
 			keys = append(keys, k("ctrl+a", "aspect ratio"))
 		}

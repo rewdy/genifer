@@ -58,6 +58,10 @@ const (
 // lives in the on-disk history file.
 const historyLoadLimit = 25
 
+// recallInactive is the recallIndex sentinel meaning the prompt holds the
+// user's own draft, not a recalled history entry.
+const recallInactive = -1
+
 // Deps are the collaborators the TUI needs, injected so it stays testable.
 type Deps struct {
 	Provider    provider.Provider
@@ -138,6 +142,14 @@ type Model struct {
 	// minting a fresh one. Cleared once consumed.
 	reuseSeed *int64
 
+	// recall session: inline Up/Down history recall on the compose prompt.
+	// recallIndex is the position in historyEntries, or recallInactive (-1)
+	// when the prompt holds the user's own draft rather than a recalled entry.
+	// recallDraft snapshots the in-progress prompt when a recall session starts
+	// so stepping forward past the newest entry restores it.
+	recallIndex int
+	recallDraft string
+
 	// onboarding (first run only)
 	onboard onboardState
 
@@ -188,15 +200,16 @@ func New(d Deps) Model {
 	}
 
 	return Model{
-		deps:     d,
-		phase:    start,
-		prompt:   ta,
-		spinner:  sp,
-		picker:   picker,
-		history:  history,
-		selected: -1,
-		status:   status,
-		onboard:  onboard,
+		deps:        d,
+		phase:       start,
+		prompt:      ta,
+		spinner:     sp,
+		picker:      picker,
+		history:     history,
+		selected:    -1,
+		recallIndex: recallInactive,
+		status:      status,
+		onboard:     onboard,
 	}
 }
 
@@ -659,10 +672,41 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+p":
 		// Open the history view to recall and reuse a past prompt.
 		return m.openHistory(phaseCompose), nil
+	case "up":
+		// Recall an older prompt only at the first line; otherwise let the
+		// textarea move the cursor up.
+		if m.prompt.Line() == 0 {
+			return m.recallPrevious(), nil
+		}
+	case "down":
+		// Advance toward a newer prompt (or the draft) only at the last line;
+		// otherwise let the textarea move the cursor down.
+		if m.recallActive() && m.prompt.Line() == m.prompt.LineCount()-1 {
+			return m.recallNext(), nil
+		}
+	}
+	// Any other key reaches the textarea. If it edits the text during a recall
+	// session, end the session so the next Up starts fresh from the newest.
+	if m.recallActive() && isEditingKey(msg) {
+		m.endRecallSession()
 	}
 	var cmd tea.Cmd
 	m.prompt, cmd = m.prompt.Update(msg)
 	return m, cmd
+}
+
+// isEditingKey reports whether a key reaching the textarea should end a recall
+// session. Cursor-movement keys do not; everything else (text entry, deletion)
+// does. Conservative by design — a false positive merely restarts recall from
+// the newest entry on the next Up, which is the expected shell behavior.
+func isEditingKey(msg tea.KeyMsg) bool {
+	switch msg.Type {
+	case tea.KeyLeft, tea.KeyRight, tea.KeyUp, tea.KeyDown,
+		tea.KeyHome, tea.KeyEnd, tea.KeyPgUp, tea.KeyPgDown:
+		return false
+	default:
+		return true
+	}
 }
 
 // handleAspectKey drives the modal aspect-ratio dialog: up/down move the
