@@ -6,13 +6,13 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/rewdy/genifer/internal/config"
-	"github.com/rewdy/genifer/internal/gen"
-	"github.com/rewdy/genifer/internal/provider"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rewdy/genifer/internal/config"
+	"github.com/rewdy/genifer/internal/gen"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // maxPickerRows caps how many model rows are visible at once; the list scrolls
@@ -439,9 +439,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.prompt.SetWidth(max(20, msg.Width-4))
-		m.picker.SetSize(max(20, msg.Width-4), pickerHeight(msg.Height))
-		m.history.SetSize(max(20, msg.Width-4), pickerHeight(msg.Height))
+		m.prompt.SetWidth(m.contentWidth())
+		m.picker.SetSize(m.contentWidth(), pickerHeight(msg.Height))
+		m.history.SetSize(m.contentWidth(), pickerHeight(msg.Height))
 		return m, nil
 
 	case modelsLoadedMsg:

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Wordmark colors: "gen" in pink, "ifer" in purple.
@@ -58,7 +59,9 @@ func RenderHeader(width int, version string) string {
 		Render("genifer" + versionSuffix(version))
 
 	// Content width inside the header's horizontal padding (Padding(1, 2)).
-	contentWidth := width - 4
+	padding := horizontalPadding(width)
+	contentWidth := max(1, width-2*padding)
+	tag = ansi.Truncate(tag, contentWidth, "…")
 	patternWidth := contentWidth - bannerCols - patternGap
 	gap := strings.Repeat(" ", patternGap)
 
@@ -72,11 +75,14 @@ func RenderHeader(width int, version string) string {
 	}
 	word := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
-	inner := lipgloss.JoinVertical(lipgloss.Left, tag, "", word)
+	inner := tag
+	if contentWidth >= bannerCols {
+		inner = lipgloss.JoinVertical(lipgloss.Left, tag, "", word)
+	}
 
 	return lipgloss.NewStyle().
 		Width(width).
-		Padding(1, 2).
+		Padding(1, padding).
 		Background(headerBG).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("#6d5bd0")).

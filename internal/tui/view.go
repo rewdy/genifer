@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/rewdy/genifer/internal/gen"
 	"github.com/rewdy/genifer/internal/provider"
-	"github.com/charmbracelet/lipgloss"
 )
 
 var (
@@ -50,12 +51,12 @@ func (m Model) View() string {
 		return ""
 	}
 	header := RenderHeader(m.width, m.deps.Version)
-	body := m.bodyView()
+	body := ansi.Wrap(m.bodyView(), m.contentWidth(), "")
 	footer := m.footerView()
 	// Match the header's horizontal padding so the content is not butted right
 	// against the terminal edge.
 	region := lipgloss.JoinVertical(lipgloss.Left, body, "", footer)
-	padded := lipgloss.NewStyle().Background(headerBG).Padding(0, 2).Render(region)
+	padded := lipgloss.NewStyle().Background(headerBG).Padding(0, horizontalPadding(m.width)).Render(region)
 	content := lipgloss.JoinVertical(lipgloss.Left, header, "", padded)
 	// Re-assert the app background across every line so no embedded widget can
 	// leave the terminal's default background showing through.
@@ -249,7 +250,7 @@ func (m Model) reviewView() string {
 	// box and draws the border + padding (2 cols each) outside it, so subtract
 	// those from the available width. Fall back to a minimum before the first
 	// WindowSizeMsg (m.width == 0).
-	outer := max(20, m.width-4)
+	outer := m.contentWidth()
 	inner := max(1, outer-4)
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -338,11 +339,46 @@ func (m Model) footerView() string {
 			keys = []string{k("enter", "new"), k("q", "quit")}
 		}
 	}
-	line := strings.Join(keys, styleFaint.Render("  ·  "))
-	status := styleFaint.Render(m.status)
+	line := wrapItems(keys, styleFaint.Render("  ·  "), m.contentWidth())
+	status := ansi.Wrap(styleFaint.Render(m.status), m.contentWidth(), "")
 	return status + "\n" + line
 }
 
 func k(key, desc string) string {
 	return styleKey.Render(key) + " " + styleFaint.Render(desc)
+}
+
+// contentWidth is shared by widgets and their surrounding layout.
+func (m Model) contentWidth() int {
+	if m.width <= 0 {
+		return 76
+	}
+	return max(1, m.width-2*horizontalPadding(m.width))
+}
+
+func horizontalPadding(width int) int {
+	if width > 0 && width < 24 {
+		return 0
+	}
+	return 2
+}
+
+// wrapItems keeps each shortcut together whenever it fits on a line.
+func wrapItems(items []string, separator string, width int) string {
+	var rows []string
+	row := ""
+	for _, item := range items {
+		if row != "" && ansi.StringWidth(row+separator+item) > width {
+			rows = append(rows, row)
+			row = ""
+		}
+		if row != "" {
+			row += separator
+		}
+		row += ansi.Wrap(item, width, "")
+	}
+	if row != "" {
+		rows = append(rows, row)
+	}
+	return strings.Join(rows, "\n")
 }
