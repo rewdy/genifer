@@ -154,3 +154,7 @@ Sources (checked 2026-10-14): [Image API documentation](https://openrouter.ai/do
 [Styles Vector endpoint metadata](https://openrouter.ai/api/v1/images/models/recraft/recraft-v4-styles-vector/endpoints).
 The implementation was verified with local HTTP fixtures and SVG save/open
 tests; no paid generation smoke test was required or run.
+
+On the success screen, press **f** to open the saved image's containing folder
+in Finder, File Explorer, or the system's default file manager. This uses the
+system folder handler, independently of any configured image viewer.

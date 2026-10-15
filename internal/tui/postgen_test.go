@@ -159,7 +159,7 @@ func TestTryNewModelPreservesParameters(t *testing.T) {
 	m.aspectRatio = "16:9"
 	m.addRefImage(provider.ReferenceImage{MediaType: "image/png"})
 
-	updated, _ := m.handleResultKey(key("t"))
+	updated, _ := m.handleResultKey(key("m"))
 	um := updated.(Model)
 	if um.phase != phasePicker {
 		t.Errorf("phase = %v, want picker", um.phase)
@@ -181,7 +181,7 @@ func TestTryNewModelDropsRefImages(t *testing.T) {
 	m := resultModel(provider.Capabilities{AcceptsReferenceImages: true})
 	m.addRefImage(provider.ReferenceImage{MediaType: "image/png"})
 	// Carry over to the picker.
-	toPicker, _ := m.handleResultKey(key("t"))
+	toPicker, _ := m.handleResultKey(key("m"))
 	pm := toPicker.(Model)
 
 	// The picker now offers a model that does NOT accept reference images.
@@ -260,5 +260,29 @@ func TestMintSeedProviderCompatibleRange(t *testing.T) {
 		if seed < 0 || seed > 1<<31-1 {
 			t.Fatalf("seed = %d, want 0 through 2147483647", seed)
 		}
+	}
+}
+
+func TestResultEditPromptPreservesDraft(t *testing.T) {
+	m := resultModel(provider.Capabilities{AcceptsReferenceImages: true})
+	m.aspectRatio = "16:9"
+	m.addRefImage(provider.ReferenceImage{Data: []byte("reference"), MediaType: "image/png"})
+	updated, cmd := m.handleResultKey(key("p"))
+	got := updated.(Model)
+	if cmd != nil || got.phase != phaseCompose || !got.prompt.Focused() || got.prompt.Value() != m.prompt.Value() || got.currentModelID() != m.currentModelID() || got.aspectRatio != m.aspectRatio || len(got.refImages) != 1 {
+		t.Fatal("edit prompt must preserve the draft without generating")
+	}
+	footer := ansi.Strip(m.footerView())
+	if !strings.Contains(footer, "p edit prompt") || !strings.Contains(footer, "m try new model") || strings.Contains(footer, "t try new model") {
+		t.Fatal(footer)
+	}
+	unchanged, cmd := m.handleResultKey(key("t"))
+	if cmd != nil || unchanged.(Model).phase != phaseResult {
+		t.Fatal("old model shortcut still active")
+	}
+	m.outcome.Failure = gen.FailureGeneration
+	updated, cmd = m.handleResultKey(key("p"))
+	if cmd != nil || updated.(Model).phase != phaseResult || strings.Contains(ansi.Strip(m.footerView()), "edit prompt") {
+		t.Fatal("success-only action available on failure")
 	}
 }

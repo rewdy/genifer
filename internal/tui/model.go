@@ -85,6 +85,8 @@ type Deps struct {
 	Paster imagePaster
 	// Open launches a saved file; nil uses the system viewer through gen.Open.
 	Open func(context.Context, string, string) error
+	// OpenFolder opens the containing directory; nil uses the system file manager.
+	OpenFolder func(context.Context, string) error
 }
 
 // Model is the root Bubble Tea model.
@@ -555,6 +557,14 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
 		m.prompt.SetValue(msg.cleaned)
 		return m.reviewCompose()
 
+	case folderOpenedMsg:
+		if msg.err != nil {
+			m.status = "Could not open folder: " + msg.err.Error()
+		} else {
+			m.status = "Opened containing folder"
+		}
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -844,13 +854,24 @@ func (m Model) handleResultKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.outcome.Failure == gen.FailureNone {
 			return m, m.openCmd()
 		}
+	case "f":
+		if m.outcome.Failure == gen.FailureNone && m.outcome.Path != "" {
+			return m, m.openFolderCmd()
+		}
 	case "r":
 		if m.outcome.Retryable() {
 			m.phase = phaseGenerating
 			m.status = "Generating..."
 			return m.generate()
 		}
-	case "t":
+	case "p":
+		if m.outcome.Failure == gen.FailureNone {
+			m.phase = phaseCompose
+			m.prompt.Focus()
+			m.status = "Editing prompt"
+		}
+		return m, nil
+	case "m":
 		// Try again with a new model: back to the picker, preserving prompt,
 		// aspect ratio, and reference images (dropped later if the newly chosen
 		// model cannot accept them).
@@ -959,4 +980,15 @@ func (m Model) currentModelID() string {
 		return it.m.ID
 	}
 	return ""
+}
+
+type folderOpenedMsg struct{ err error }
+
+func (m Model) openFolderCmd() tea.Cmd {
+	path := m.outcome.Path
+	opener := m.deps.OpenFolder
+	if opener == nil {
+		opener = gen.OpenFolder
+	}
+	return func() tea.Msg { return folderOpenedMsg{err: opener(context.Background(), path)} }
 }

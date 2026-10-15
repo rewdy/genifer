@@ -379,7 +379,7 @@ func (m Model) footerView() string {
 		keys = []string{k("↑/↓", "move"), k("space", "toggle"), k("enter", "save"), k("esc", "cancel")}
 	case phaseResult:
 		if m.outcome.Failure == gen.FailureNone {
-			keys = []string{k("o", "open"), k("t", "try new model"), k("n", "new image")}
+			keys = []string{k("o", "open"), k("f", "open folder"), k("p", "edit prompt"), k("m", "try new model"), k("n", "new image")}
 			if m.outcome.Seed != nil {
 				keys = append(keys, k("g", "re-gen (same seed)"), k("v", "re-gen (vary seed)"))
 			} else {

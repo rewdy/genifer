@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 )
 
@@ -39,4 +40,18 @@ func Open(ctx context.Context, override, path string) error {
 	// Don't wait: the viewer is a separate, long-lived process.
 	go func() { _ = c.Wait() }()
 	return nil
+}
+
+// OpenFolder opens the saved image's containing directory in the system file
+// manager. The image-viewer override does not apply to directories.
+func OpenFolder(ctx context.Context, imagePath string) error {
+	path, err := filepath.Abs(imagePath)
+	if err != nil {
+		return fmt.Errorf("gen: resolving image directory: %w", err)
+	}
+	override := ""
+	if runtime.GOOS == "windows" {
+		override = "explorer"
+	}
+	return Open(ctx, override, filepath.Dir(path))
 }

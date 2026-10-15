@@ -130,7 +130,7 @@ genifer
 | History    | `↑/↓` move · `/` filter · `enter` reuse · `esc` back |
 | Settings   | `↑/↓` move · `space` toggle · `enter` save · `esc` cancel |
 | Generating | `esc` cancel                              |
-| Result (success) | `o` open · `t` try new model · `n` new image · `g` re-generate (seed models: same seed) · `v` re-generate varying the seed · `q` quit |
+| Result (success) | `o` open · `f` open folder · `p` edit prompt · `m` try new model · `n` new image · `g` re-generate (seed models: same seed) · `v` re-generate varying the seed · `q` quit |
 | Result (failure) | `r` retry (when retryable) · `enter` new · `q` quit |
 
 ### History
