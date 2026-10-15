@@ -6,9 +6,9 @@
 # Prerequisite: `genifer` must be on your PATH (e.g. `go install .` or
 # `go build -o /usr/local/bin/genifer .`). This tape only records the demo.
 #
-# Deterministic and spends no credit: it walks the model picker, filters,
-# selects a model, enters a prompt, and stops at the review screen — it does
-# NOT press Enter to generate.
+# Generates a real image: it walks the model picker, filters to Nano Banana 2
+# Lite (Google's fastest image model), enters a prompt, generates, and shows
+# the final result screen. Spends a small amount of credit per run.
 
 Output demo/genifer.gif
 
@@ -35,14 +35,16 @@ Down
 Sleep 800ms
 
 # --- Filter the list --------------------------------------------------------
+# Enter (not Escape) accepts the filter: Escape cancels it and restores the
+# full list, which would leave an arbitrary model selected.
 Type "/"
 Sleep 500ms
-Type "flux"
+Type "nano banana 2 lite"
 Sleep 1500ms
-Escape
+Enter
 Sleep 800ms
 
-# --- Pick a model -----------------------------------------------------------
+# --- Pick the filtered model ------------------------------------------------
 Enter
 Sleep 1500ms
 
@@ -50,6 +52,10 @@ Sleep 1500ms
 Type "a cute robot painting a sunset over the ocean, retro poster style"
 Sleep 1500ms
 
-# --- Review the prompt (stops here — no generation) -------------------------
+# --- Review the prompt ------------------------------------------------------
 Ctrl+S
-Sleep 3s
+Sleep 2s
+
+# --- Generate and show the final result screen ------------------------------
+Enter
+Sleep 12s
