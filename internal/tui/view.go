@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rewdy/genifer/internal/gen"
+	"github.com/rewdy/genifer/internal/preview"
 	"github.com/rewdy/genifer/internal/provider"
 )
 
@@ -71,7 +72,14 @@ func (m Model) View() string {
 	if m.height > 0 {
 		canvas = canvas.Height(m.height)
 	}
-	return canvas.Render(content)
+	rendered := canvas.Render(content)
+	if m.deps.Preview != nil {
+		marker := preview.Marker(m.previewPlacement())
+		// Repeat at the end so a clear marker survives Bubble Tea clipping an
+		// oversized text-only frame from the top on very small terminals.
+		return marker + rendered + marker
+	}
+	return rendered
 }
 
 func (m Model) bodyView() string {
@@ -318,7 +326,7 @@ func (m Model) referenceGuidance() string {
 	return rule
 }
 
-func (m Model) resultView() string {
+func (m Model) resultTextView() string {
 	if m.outcome.Failure == gen.FailureNone {
 		lines := styleOK.Render("✓ " + m.outcome.Message())
 		if m.outcome.CostUSD > 0 {

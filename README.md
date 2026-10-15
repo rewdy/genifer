@@ -192,3 +192,13 @@ just bump major "big rewrite"
 
 The level defaults to `patch`. If there are no tags yet, `bump` won't guess —
 cut the first release explicitly with `just release v0.1.0`.
+
+### Result thumbnails
+
+Successful PNG, JPEG, and WebP generations show a proportional thumbnail above
+result details in direct Ghostty and iTerm2 sessions, targeting 150 terminal
+pixels high and shrinking to fit. Image preparation never blocks result actions.
+Unsupported terminals, unavailable pixel geometry, tmux/screen/SSH sessions,
+SVG output, and preview failures retain the normal success screen silently.
+Saved image files are unchanged. See [terminal previews](docs/terminal-previews.md)
+for the fixture harness and compatibility details.

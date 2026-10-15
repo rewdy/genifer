@@ -16,4 +16,8 @@
 // most-recent entries for responsiveness and points the user to the on-disk
 // file for the full record; selecting an entry pre-fills compose, reapplying
 // aspect ratio and seed where the active model supports them.
+//
+// Native result thumbnails are optional. Image preparation and terminal geometry
+// run in commands; the output adapter owns protocol emission and cleanup while
+// View lays out ordinary text and an opaque placement marker.
 package tui

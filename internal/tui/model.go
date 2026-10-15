@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rewdy/genifer/internal/config"
 	"github.com/rewdy/genifer/internal/gen"
+	"github.com/rewdy/genifer/internal/preview"
 	"github.com/rewdy/genifer/internal/provider"
 )
 
@@ -87,6 +88,8 @@ type Deps struct {
 	Open func(context.Context, string, string) error
 	// OpenFolder opens the containing directory; nil uses the system file manager.
 	OpenFolder func(context.Context, string) error
+	// Preview is nil when native terminal image support is unavailable.
+	Preview *PreviewDeps
 }
 
 // Model is the root Bubble Tea model.
@@ -134,7 +137,13 @@ type Model struct {
 	cancel  context.CancelFunc
 
 	// result
-	outcome gen.Outcome
+	outcome                                 gen.Outcome
+	previewGeometry                         preview.Geometry
+	previewGeometryRevision                 uint64
+	previewRevision                         uint64
+	previewCancel                           context.CancelFunc
+	previewItem                             preview.Item
+	previewBudgetWidth, previewBudgetHeight int
 
 	// lastDraft is the exact draft used for the in-flight / just-completed
 	// generation (including the minted seed), captured when generation fires so
@@ -459,10 +468,23 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
 	// Invalidate pending attachment reads when the draft or active screen changes.
 	before := m.attachmentToken()
 	beforePhase, beforeRefs := m.phase, len(m.refImages)
+	beforeStatus := m.status
 	defer func() {
 		if next, ok := updated.(Model); ok {
 			if next.phase != beforePhase || next.attachmentToken() != before || len(next.refImages) != beforeRefs || next.quit {
 				next.draftRevision++
+			}
+			if next.phase != phaseResult || next.outcome.Failure != gen.FailureNone || next.quit {
+				if next.previewCancel != nil || next.previewItem.ID != 0 {
+					next.clearPreview()
+				}
+			} else if beforePhase == phaseResult && next.status != beforeStatus && next.deps.Preview != nil {
+				width, height, _ := next.previewBox()
+				if width != next.previewBudgetWidth || height != next.previewBudgetHeight {
+					if cmd := next.beginPreview(); cmd != nil {
+						command = tea.Batch(command, cmd)
+					}
+				}
 			}
 			updated = next
 		}
@@ -473,6 +495,36 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
 		m.prompt.SetWidth(m.contentWidth())
 		m.picker.SetSize(m.contentWidth(), pickerHeight(msg.Height))
 		m.history.SetSize(m.contentWidth(), pickerHeight(msg.Height))
+		m.previewGeometryRevision++
+		m.previewGeometry = preview.Geometry{}
+		m.clearPreview()
+		return m, m.geometryCmd()
+
+	case previewGeometryMsg:
+		if msg.revision != m.previewGeometryRevision {
+			return m, nil
+		}
+		if msg.err != nil || !msg.geometry.Valid(m.width, m.height) {
+			return m, nil
+		}
+		m.previewGeometry = msg.geometry
+		if m.phase == phaseResult && m.outcome.Failure == gen.FailureNone {
+			cmd := m.beginPreview()
+			return m, cmd
+		}
+		return m, nil
+
+	case previewLoadedMsg:
+		if msg.revision != m.previewRevision || m.phase != phaseResult || m.outcome.Failure != gen.FailureNone || m.quit {
+			return m, nil
+		}
+		if m.previewCancel != nil {
+			m.previewCancel()
+			m.previewCancel = nil
+		}
+		if msg.err == nil {
+			m.previewItem = msg.item
+		}
 		return m, nil
 
 	case modelsLoadedMsg:
@@ -519,6 +571,9 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
 		m.status = msg.outcome.Message()
 		var cmds []tea.Cmd
 		if m.outcome.Failure == gen.FailureNone {
+			if pc := m.beginPreview(); pc != nil {
+				cmds = append(cmds, pc)
+			}
 			if hc := m.recordHistoryCmd(); hc != nil {
 				cmds = append(cmds, hc)
 			}
