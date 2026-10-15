@@ -73,7 +73,10 @@ func TestSubmitAttachesPathImage(t *testing.T) {
 	m := composeModel(true, fakePaster{})
 	m.prompt.SetValue("a red bird\n@" + imgPath)
 
-	updated, _ := m.submitCompose()
+	updated, cmd := m.submitCompose()
+	if cmd != nil {
+		updated, _ = updated.(Model).Update(cmd())
+	}
 	um := updated.(Model)
 
 	if len(um.refImages) != 1 {
@@ -98,7 +101,10 @@ func TestSubmitMissingPathBlocks(t *testing.T) {
 	m := composeModel(true, fakePaster{})
 	m.prompt.SetValue("a red bird\n@/no/such/file.png")
 
-	updated, _ := m.submitCompose()
+	updated, cmd := m.submitCompose()
+	if cmd != nil {
+		updated, _ = updated.(Model).Update(cmd())
+	}
 	um := updated.(Model)
 
 	if um.phase != phaseCompose {
@@ -127,7 +133,10 @@ func TestSubmitNonImagePathBlocks(t *testing.T) {
 	m := composeModel(true, fakePaster{})
 	m.prompt.SetValue("a red bird\n@" + txtPath)
 
-	updated, _ := m.submitCompose()
+	updated, cmd := m.submitCompose()
+	if cmd != nil {
+		updated, _ = updated.(Model).Update(cmd())
+	}
 	um := updated.(Model)
 
 	if um.phase != phaseCompose {
@@ -148,7 +157,10 @@ func TestPathImagePillAndRemoval(t *testing.T) {
 
 	m := composeModel(true, fakePaster{})
 	m.prompt.SetValue("a red bird\n@" + imgPath)
-	updated, _ := m.submitCompose()
+	updated, cmd := m.submitCompose()
+	if cmd != nil {
+		updated, _ = updated.(Model).Update(cmd())
+	}
 	um := updated.(Model)
 
 	// Back to compose to inspect the pill rendering.

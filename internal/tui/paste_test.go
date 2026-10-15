@@ -3,8 +3,8 @@ package tui
 import (
 	"testing"
 
-	"github.com/rewdy/genifer/internal/provider"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // composeModel builds a Model sitting in the compose phase with a single model
@@ -56,7 +56,7 @@ func TestPasteResultSuccessAttaches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture invalid: %v", err)
 	}
-	updated, _ := m.Update(pastedImageMsg{ref: ref})
+	updated, _ := m.Update(pastedImageMsg{ref: ref, token: m.attachmentToken()})
 	um := updated.(Model)
 	if len(um.refImages) != 1 {
 		t.Fatalf("refImages = %d, want 1", len(um.refImages))
@@ -70,7 +70,7 @@ func TestPasteResultSuccessAttaches(t *testing.T) {
 // nothing.
 func TestPasteResultFailureStatus(t *testing.T) {
 	m := composeModel(true, fakePaster{err: ErrNoClipboardImage})
-	updated, _ := m.Update(pastedImageMsg{err: ErrNoClipboardImage})
+	updated, _ := m.Update(pastedImageMsg{err: ErrNoClipboardImage, token: m.attachmentToken()})
 	um := updated.(Model)
 	if len(um.refImages) != 0 {
 		t.Errorf("refImages = %d, want 0 on failure", len(um.refImages))

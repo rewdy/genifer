@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -84,6 +83,8 @@ type Deps struct {
 	// fake. It is read lazily (never at startup) so a missing clipboard never
 	// blocks launch.
 	Paster imagePaster
+	// Open launches a saved file; nil uses the system viewer through gen.Open.
+	Open func(context.Context, string, string) error
 }
 
 // Model is the root Bubble Tea model.
@@ -123,7 +124,8 @@ type Model struct {
 	aspectCursor int
 
 	// reference images attached for the next generation (paste or file path).
-	refImages []provider.ReferenceImage
+	refImages     []provider.ReferenceImage
+	draftRevision uint64
 
 	// in-flight
 	spinner spinner.Model
@@ -199,6 +201,9 @@ func New(d Deps) Model {
 	if d.Paster == nil {
 		d.Paster = newClipboardPaster()
 	}
+	if d.Open == nil {
+		d.Open = gen.Open
+	}
 
 	start := phasePicker
 	status := "Loading models..."
@@ -246,8 +251,9 @@ type generatedMsg struct{ outcome gen.Outcome }
 // success Ref holds the validated image; on any failure Err is set and the UI
 // shows a transient, non-fatal status.
 type pastedImageMsg struct {
-	ref provider.ReferenceImage
-	err error
+	token attachmentToken
+	ref   provider.ReferenceImage
+	err   error
 }
 
 // pasteImageCmd reads the clipboard off the UI loop, validates the bytes, and
@@ -395,9 +401,10 @@ func (m Model) composeDraft() gen.Draft {
 	return d
 }
 
-// mintSeed returns a random non-negative int64 seed.
+// mintSeed uses non-negative signed 32-bit values for provider compatibility.
+// Keep the int64 request type so existing recorded seeds remain reproducible.
 func mintSeed() int64 {
-	return rand.Int63()
+	return int64(rand.Int31())
 }
 
 // persistAspectRatio records the current aspect-ratio selection as the
@@ -413,6 +420,9 @@ func (m Model) persistAspectRatio() {
 }
 
 func (m Model) generate() (Model, tea.Cmd) {
+	if err := provider.ValidateReferences(context.Background(), m.currentCaps(), m.refImages, true); err != nil {
+		return m.editInvalidDraft(m.composeDraft(), err), nil
+	}
 	m.persistAspectRatio()
 	d := m.composeDraft()
 	m.reuseSeed = nil // consumed into the draft
@@ -422,6 +432,14 @@ func (m Model) generate() (Model, tea.Cmd) {
 // runDraft starts a generation for the exact draft d, capturing it as lastDraft
 // so re-generate can repeat it precisely.
 func (m Model) runDraft(d gen.Draft) (Model, tea.Cmd) {
+	for _, model := range m.models {
+		if model.ID == d.Model {
+			if err := provider.ValidateReferences(context.Background(), model.Capabilities, d.ReferenceImages, true); err != nil {
+				return m.editInvalidDraft(d, err), nil
+			}
+			break
+		}
+	}
 	m.lastDraft = d
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -435,7 +453,18 @@ func (m Model) runDraft(d gen.Draft) (Model, tea.Cmd) {
 
 // --- update ----------------------------------------------------------------
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
+	// Invalidate pending attachment reads when the draft or active screen changes.
+	before := m.attachmentToken()
+	beforePhase, beforeRefs := m.phase, len(m.refImages)
+	defer func() {
+		if next, ok := updated.(Model); ok {
+			if next.phase != beforePhase || next.attachmentToken() != before || len(next.refImages) != beforeRefs || next.quit {
+				next.draftRevision++
+			}
+			updated = next
+		}
+	}()
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -481,6 +510,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case generatedMsg:
 		m.cancel = nil
 		m.outcome = msg.outcome
+		if msg.outcome.Failure == gen.FailureInput {
+			return m.editInvalidDraft(m.lastDraft, msg.outcome.Err), nil
+		}
 		m.phase = phaseResult
 		m.status = msg.outcome.Message()
 		var cmds []tea.Cmd
@@ -495,13 +527,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case pastedImageMsg:
+		if !m.acceptsAttachment(msg.token) {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.status = pasteErrorText(msg.err)
 			return m, nil
 		}
-		m.addRefImage(msg.ref)
+		all := append(append([]provider.ReferenceImage(nil), m.refImages...), msg.ref)
+		if err := provider.ValidateReferences(context.Background(), m.currentCaps(), all, false); err != nil {
+			m.status = pasteErrorText(err)
+			return m, nil
+		}
+		m.refImages = all
 		m.status = fmt.Sprintf("Attached image — %d reference image(s)", len(m.refImages))
 		return m, nil
+
+	case pathImagesMsg:
+		if !m.acceptsAttachment(msg.token) {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.status = pasteErrorText(msg.err)
+			return m, nil
+		}
+		m.refImages = append(append([]provider.ReferenceImage(nil), m.refImages...), msg.refs...)
+		m.prompt.SetValue(msg.cleaned)
+		return m.reviewCompose()
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -618,6 +670,8 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				n := len(m.refImages)
 				m.refImages = nil
 				m.status = fmt.Sprintf("Dropped %d reference image(s) — this model does not accept them", n)
+			} else if err := provider.ValidateReferences(context.Background(), it.m.Capabilities, m.refImages, true); err != nil {
+				m.status = err.Error()
 			}
 		}
 		return m, nil
@@ -665,7 +719,7 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// reaches the textarea unchanged.
 		if m.currentCaps().AcceptsReferenceImages {
 			m.status = "Reading clipboard…"
-			return m, pasteImageCmd(m.deps.Paster)
+			return m, m.pasteCmd()
 		}
 	case "ctrl+r":
 		// Remove the most-recently attached reference image.
@@ -763,32 +817,11 @@ func (m Model) submitCompose() (tea.Model, tea.Cmd) {
 	if m.currentCaps().AcceptsReferenceImages {
 		paths, cleaned := extractRefPaths(m.prompt.Value())
 		if len(paths) > 0 {
-			var loaded []provider.ReferenceImage
-			for _, p := range paths {
-				ref, err := loadRefImageFile(p)
-				if err != nil {
-					// Block the submit; keep the sigil lines so the user can fix
-					// the path rather than silently sending an unresolved prompt.
-					m.status = pasteErrorText(err)
-					return m, nil
-				}
-				loaded = append(loaded, ref)
-			}
-			for _, ref := range loaded {
-				m.addRefImage(ref)
-			}
-			m.prompt.SetValue(cleaned)
-			m.status = fmt.Sprintf("Attached %d image(s) from path — %d reference image(s)", len(loaded), len(m.refImages))
+			m.status = "Reading reference images…"
+			return m, m.loadPathsCmd(paths, cleaned)
 		}
 	}
-	if strings.TrimSpace(m.prompt.Value()) == "" {
-		m.status = "Prompt is empty — enter some text"
-		return m, nil
-	}
-	m.phase = phaseReview
-	m.prompt.Blur()
-	m.status = "Review your prompt"
-	return m, nil
+	return m.reviewCompose()
 }
 
 func (m Model) handleReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -908,8 +941,12 @@ func (m Model) regenerate(vary bool) (tea.Model, tea.Cmd) {
 func (m Model) openCmd() tea.Cmd {
 	path := m.outcome.Path
 	override := m.deps.OpenCommand
+	opener := m.deps.Open
+	if opener == nil {
+		opener = gen.Open
+	}
 	return func() tea.Msg {
-		_ = gen.Open(context.Background(), override, path)
+		_ = opener(context.Background(), override, path)
 		return nil
 	}
 }

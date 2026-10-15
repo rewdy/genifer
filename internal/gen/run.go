@@ -20,6 +20,7 @@ const (
 	FailureGeneration // retryable
 	FailureSave
 	FailureOther
+	FailureInput // correct references before retrying
 )
 
 // Outcome is the result of a generation attempt.
@@ -46,6 +47,8 @@ func (o Outcome) Message() string {
 		return "Insufficient account credit"
 	case FailureGeneration:
 		return "Generation failed — try again"
+	case FailureInput:
+		return "Correct reference images: " + errText(o.Err)
 	case FailureSave:
 		return "Could not save the image: " + errText(o.Err)
 	default:
@@ -105,6 +108,8 @@ func classify(ctx context.Context, err error) FailureKind {
 		return FailureAuth
 	case errors.Is(err, provider.ErrInsufficientCredit):
 		return FailureCredit
+	case errors.Is(err, provider.ErrInvalidReference), errors.Is(err, provider.ErrReferenceImagesUnsupported):
+		return FailureInput
 	case errors.Is(err, provider.ErrGenerationFailed):
 		return FailureGeneration
 	default:

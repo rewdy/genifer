@@ -70,6 +70,10 @@ func TestPricingEndpointCall(t *testing.T) {
 
 func TestGenerateCapturesCost(t *testing.T) {
 	c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/images/models" {
+			w.Write([]byte(`{"data":[{"id":"m"}]}`))
+			return
+		}
 		// b64 for "img" is "aW1n"
 		w.Write([]byte(`{"data":[{"b64_json":"aW1n","media_type":"image/png"}],"usage":{"cost":0.0123}}`))
 	}))

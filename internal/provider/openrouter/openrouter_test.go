@@ -1,9 +1,12 @@
 package openrouter
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -87,6 +90,10 @@ func TestGenerateSuccess(t *testing.T) {
 	want := []byte("\x89PNG fake bytes")
 	b64 := base64.StdEncoding.EncodeToString(want)
 	c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/images/models" {
+			w.Write([]byte(`{"data":[{"id":"m"}]}`))
+			return
+		}
 		if !strings.HasSuffix(r.URL.Path, "/images") {
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -122,6 +129,10 @@ func TestGenerateParsesReportedSeed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/images/models" {
+					w.Write([]byte(`{"data":[{"id":"m"}]}`))
+					return
+				}
 				w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
@@ -162,7 +173,7 @@ func TestGenerateWithReferenceSupported(t *testing.T) {
 	_, err := c.Generate(context.Background(), provider.GenerateRequest{
 		Model:           "google/gemini-2.5-flash-image",
 		Prompt:          "cat",
-		ReferenceImages: []provider.ReferenceImage{{Data: []byte("x"), MediaType: "image/png"}},
+		ReferenceImages: []provider.ReferenceImage{{Data: testPNG(t), MediaType: "image/png"}},
 	})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
@@ -205,6 +216,10 @@ func TestGenerateErrorMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/images/models" {
+				w.Write([]byte(`{"data":[{"id":"m"}]}`))
+				return
+			}
 			w.WriteHeader(tc.status)
 			w.Write([]byte(`{"error":{"message":"x"}}`))
 		}))
@@ -262,4 +277,13 @@ func TestKeyResolutionFailureIsNoAPIKeyError(t *testing.T) {
 	if !errors.Is(err, provider.ErrNoAPIKey) {
 		t.Fatalf("err = %v, want ErrNoAPIKey", err)
 	}
+}
+
+func testPNG(t *testing.T) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := png.Encode(&b, image.NewRGBA(image.Rect(0, 0, 256, 256))); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
 }

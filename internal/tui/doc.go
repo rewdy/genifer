@@ -4,10 +4,12 @@
 //
 // For reference-capable models the compose form attaches reference images two
 // ways: a clipboard paste keypress (read out-of-band via the imagePaster seam)
-// and sigil-prefixed file-path lines in the prompt, resolved at submit. Both
+// and sigil-prefixed file-path lines in the prompt, resolved asynchronously at
+// submit. Results are committed only to the unchanged draft that requested them. Both
 // paths validate the image, surface it as an inline pill, and feed
 // gen.Draft.ReferenceImages. Clipboard and file access are best-effort and
-// never fatal.
+// never fatal. Known reference count, format, and dimension requirements are
+// enforced before generation; sole-SVG models show their native output format.
 //
 // A successful generation is appended to the app-owned history store (best-
 // effort, gated by the history config option). The history view loads only the

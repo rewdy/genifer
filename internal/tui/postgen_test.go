@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/rewdy/genifer/internal/gen"
 	"github.com/rewdy/genifer/internal/provider"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // capModel builds a Model with a single selected model whose capabilities are
@@ -64,7 +64,7 @@ func TestComposeDraftMintsSeedOnlyWhenSupported(t *testing.T) {
 	}
 }
 
-// 1.1: minted seeds are valid (non-negative int64) and present for a
+// Minted seeds fit the non-negative signed 32-bit range and are present for a
 // seed-capable model.
 func TestComposeDraftSeedValue(t *testing.T) {
 	m := capModel(provider.Capabilities{SupportsSeed: true})
@@ -73,8 +73,8 @@ func TestComposeDraftSeedValue(t *testing.T) {
 	if d.Seed == nil {
 		t.Fatal("expected a seed")
 	}
-	if *d.Seed < 0 {
-		t.Errorf("seed = %d, want non-negative", *d.Seed)
+	if *d.Seed < 0 || *d.Seed > 1<<31-1 {
+		t.Errorf("seed = %d, want 0 through 2147483647", *d.Seed)
 	}
 }
 
@@ -251,5 +251,14 @@ func TestResultFooterHints(t *testing.T) {
 	}
 	if strings.Contains(fail, "try new model") || strings.Contains(fail, "new image") {
 		t.Errorf("failure footer should not show success-only actions; got %q", fail)
+	}
+}
+
+func TestMintSeedProviderCompatibleRange(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		seed := mintSeed()
+		if seed < 0 || seed > 1<<31-1 {
+			t.Fatalf("seed = %d, want 0 through 2147483647", seed)
+		}
 	}
 }

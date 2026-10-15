@@ -155,7 +155,7 @@ When the selected model accepts reference images, the form SHALL let the user at
 #### Scenario: Clipboard cannot be read
 
 - **WHEN** the user presses the paste key but the clipboard is unavailable in the current environment (for example, no display, or over a remote session)
-- **THEN** the form reports that no image could be read without erroring the application, and generation remains possible without a reference image
+- **THEN** the form reports that no image could be read without erroring the application, and generation remains possible without a reference image only when references are optional for the selected model
 
 #### Scenario: Attached images are sent with the generation
 
@@ -176,6 +176,30 @@ When the selected model accepts reference images, the form SHALL let the user at
 
 - **WHEN** the user submits a prompt whose sigil-prefixed path refers to a file that cannot be decoded as a supported image or exceeds the size cap
 - **THEN** the form shows a transient, non-fatal status message and attaches nothing for that path
+
+#### Scenario: Required reference guidance
+- **WHEN** a selected model advertises a positive minimum reference count
+- **THEN** compose and review show the requirement and current count, and compose explains how to attach a reference
+
+#### Scenario: Missing required inputs block review
+- **WHEN** the user submits a draft with fewer references than required
+- **THEN** the form remains editable with an actionable message, preserves the draft, and starts no generation
+
+#### Scenario: Excess or invalid attachments
+- **WHEN** a paste or path attachment would exceed the maximum or violate the selected model's format or dimension rules
+- **THEN** the attachment is rejected non-fatally with a specific message, existing attachments are preserved, and no path lines are consumed for a rejected path batch
+
+#### Scenario: Switch to a more restrictive model
+- **WHEN** carried-over references violate the newly selected model's requirements
+- **THEN** they remain available for removal or replacement and review/generation is blocked until the draft satisfies those requirements
+
+#### Scenario: Repeat validates inputs
+- **WHEN** retry or re-generate would send references that no longer meet known requirements
+- **THEN** generation is prevented and the user can edit the draft to correct the problem
+
+#### Scenario: SVG output guidance
+- **WHEN** the selected model advertises SVG as its sole output format
+- **THEN** compose and review identify the output as SVG without presenting an unnecessary format selector
 
 ### Requirement: Scrollable, filterable model list
 

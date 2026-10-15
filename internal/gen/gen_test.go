@@ -170,6 +170,8 @@ func TestRunFailureClassification(t *testing.T) {
 		{provider.ErrAuth, FailureAuth},
 		{provider.ErrInsufficientCredit, FailureCredit},
 		{provider.ErrGenerationFailed, FailureGeneration},
+		{provider.ErrInvalidReference, FailureInput},
+		{provider.ErrReferenceImagesUnsupported, FailureInput},
 		{context.Canceled, FailureCancelled},
 		{errors.New("boom"), FailureOther},
 	}
@@ -185,6 +187,9 @@ func TestRunFailureClassification(t *testing.T) {
 }
 
 func TestRunRetryable(t *testing.T) {
+	if (Outcome{Failure: FailureInput}).Retryable() {
+		t.Fatal("input failures need editing")
+	}
 	dir := t.TempDir()
 	gen := Run(context.Background(), fakeProvider{err: provider.ErrGenerationFailed}, Draft{Prompt: "p", Model: "m"}, dir)
 	if !gen.Retryable() {

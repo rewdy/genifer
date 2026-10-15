@@ -35,9 +35,18 @@ type Model struct {
 
 // Capabilities describes, in provider-agnostic terms, what a model supports.
 type Capabilities struct {
-	// AcceptsReferenceImages reports whether the model supports image-to-image
-	// via reference images.
+	// AcceptsReferenceImages reports whether the model accepts images for
+	// editing or style guidance.
 	AcceptsReferenceImages bool
+	// ReferenceMin/Max are advertised count bounds; nil means unknown.
+	ReferenceMin *int
+	ReferenceMax *int
+	// ReferenceMediaTypes and minimum dimensions constrain inputs when known.
+	ReferenceMediaTypes []string
+	ReferenceMinWidth   int
+	ReferenceMinHeight  int
+	// OutputFormats lists advertised formats; empty means unknown.
+	OutputFormats []string
 	// AspectRatios lists selectable aspect ratios (e.g. "1:1", "16:9"). Empty
 	// means the model does not expose an aspect-ratio control.
 	AspectRatios []string
@@ -45,7 +54,7 @@ type Capabilities struct {
 	SupportsSeed bool
 }
 
-// ReferenceImage is an input image supplied for image-to-image generation.
+// ReferenceImage is an input image supplied for editing or style guidance.
 type ReferenceImage struct {
 	// Data is the raw image bytes.
 	Data []byte
@@ -59,7 +68,7 @@ type GenerateRequest struct {
 	Model string
 	// Prompt is the text prompt.
 	Prompt string
-	// ReferenceImages are optional inputs for image-to-image. Supplying any for
+	// ReferenceImages are inputs for image-to-image or style guidance. Supplying any for
 	// a model whose Capabilities.AcceptsReferenceImages is false is an error.
 	ReferenceImages []ReferenceImage
 	// AspectRatio, when non-empty, requests a specific aspect ratio.
@@ -127,4 +136,6 @@ var (
 	// ErrReferenceImagesUnsupported indicates reference images were supplied for
 	// a model that does not accept them.
 	ErrReferenceImagesUnsupported = errors.New("model does not accept reference images")
+	// ErrInvalidReference indicates a correctable reference count or image error.
+	ErrInvalidReference = errors.New("invalid reference images")
 )

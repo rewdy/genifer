@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rewdy/genifer/internal/config"
-	"github.com/rewdy/genifer/internal/provider"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rewdy/genifer/internal/config"
+	"github.com/rewdy/genifer/internal/provider"
 )
 
 // aspectModel builds a Model in the compose phase with a single model selected
@@ -175,15 +175,14 @@ func TestAspectViewListsAllRatios(t *testing.T) {
 	}
 }
 
-// 4.2: the compose view shows the selected aspect ratio and the open-dialog
-// hint for a ratio-capable model, and nothing for a model with no ratios.
+// The compose details show the selected ratio; the footer owns its shortcut.
 func TestComposeViewAspectSelector(t *testing.T) {
 	withRatios := ansi.Strip(aspectModel([]string{"1:1", "16:9"}, "16:9").composeView())
 	if !strings.Contains(withRatios, "16:9") {
 		t.Errorf("compose view missing selected ratio; got %q", withRatios)
 	}
-	if !strings.Contains(withRatios, "ctrl+a") {
-		t.Errorf("compose view missing change hint; got %q", withRatios)
+	if strings.Contains(withRatios, "ctrl+a") {
+		t.Errorf("compose view duplicates the footer change hint; got %q", withRatios)
 	}
 
 	noRatios := ansi.Strip(aspectModel(nil, "").composeView())

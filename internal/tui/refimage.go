@@ -1,19 +1,11 @@
 package tui
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"image"
 	"os"
 	"path/filepath"
 	"strings"
-
-	// Register decoders so image.DecodeConfig recognizes the formats a user is
-	// likely to paste or reference. Blank imports: used for their side effects.
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 
 	"github.com/rewdy/genifer/internal/provider"
 )
@@ -21,7 +13,7 @@ import (
 // maxRefImageBytes caps the size of a single reference image. Pasted or
 // file-referenced data larger than this is rejected before it reaches memory
 // buffers or the network.
-const maxRefImageBytes = 20 << 20 // 20 MiB
+const maxRefImageBytes = provider.MaxReferenceBytes
 
 // errRefImageTooLarge and errRefImageUndecodable are the two validation
 // failures. They are not sentinels the UI branches on — any validation failure
@@ -32,34 +24,16 @@ var (
 	errRefImageUndecodable = errors.New("data is not a supported image")
 )
 
-// imageFormatMediaType maps image/* format names (as returned by
-// image.DecodeConfig) to IANA media types.
-var imageFormatMediaType = map[string]string{
-	"png":  "image/png",
-	"jpeg": "image/jpeg",
-	"gif":  "image/gif",
-}
-
-// validateRefImage checks that data is a supported image within the size cap
-// and returns it as a provider.ReferenceImage with the derived media type. It
-// does not fully decode the image — only the header, enough to confirm the
-// format and derive the media type.
+// validateRefImage derives the format through the shared provider validator.
 func validateRefImage(data []byte) (provider.ReferenceImage, error) {
-	if len(data) == 0 {
-		return provider.ReferenceImage{}, errRefImageUndecodable
-	}
 	if len(data) > maxRefImageBytes {
-		return provider.ReferenceImage{}, fmt.Errorf("%w (%d bytes, max %d)", errRefImageTooLarge, len(data), maxRefImageBytes)
+		return provider.ReferenceImage{}, errRefImageTooLarge
 	}
-	_, format, err := image.DecodeConfig(bytes.NewReader(data))
+	ref, _, err := provider.InspectReference(data)
 	if err != nil {
 		return provider.ReferenceImage{}, errRefImageUndecodable
 	}
-	mt, ok := imageFormatMediaType[format]
-	if !ok {
-		return provider.ReferenceImage{}, fmt.Errorf("%w (%s)", errRefImageUndecodable, format)
-	}
-	return provider.ReferenceImage{Data: data, MediaType: mt}, nil
+	return ref, nil
 }
 
 // refPathSigil marks a prompt line as a reference-image file path. A line whose

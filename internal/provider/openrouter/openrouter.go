@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -103,6 +104,8 @@ type imageModel struct {
 type supportedParameter struct {
 	Type   string   `json:"type"`             // "enum" | "range" | "boolean"
 	Values []string `json:"values,omitempty"` // for enum
+	Min    *float64 `json:"min,omitempty"`
+	Max    *float64 `json:"max,omitempty"`
 }
 
 func (c *Client) Models(ctx context.Context) ([]provider.Model, error) {
@@ -131,7 +134,7 @@ func (c *Client) Models(ctx context.Context) ([]provider.Model, error) {
 		models = append(models, provider.Model{
 			ID:           m.ID,
 			Name:         orName(m),
-			Capabilities: capsFrom(m.SupportedParameters),
+			Capabilities: modelCaps(m),
 		})
 	}
 	return models, nil
@@ -146,14 +149,45 @@ func orName(m imageModel) string {
 
 func capsFrom(params map[string]supportedParameter) provider.Capabilities {
 	caps := provider.Capabilities{}
-	if _, ok := params["input_references"]; ok {
+	if p, ok := params["input_references"]; ok {
 		caps.AcceptsReferenceImages = true
+		if p.Type == "range" {
+			caps.ReferenceMin, caps.ReferenceMax = countBound(p.Min), countBound(p.Max)
+		}
+	}
+	if p, ok := params["output_format"]; ok {
+		caps.OutputFormats = p.Values
 	}
 	if p, ok := params["aspect_ratio"]; ok {
 		caps.AspectRatios = p.Values
 	}
 	if _, ok := params["seed"]; ok {
 		caps.SupportsSeed = true
+	}
+	return caps
+}
+
+// countBound reads integer reference counts without requiring unrelated model
+// parameters (such as strength) to have integral range bounds.
+func countBound(value *float64) *int {
+	if value == nil || *value < 0 || *value >= float64(math.MaxInt) || math.Trunc(*value) != *value {
+		return nil
+	}
+	n := int(*value)
+	return &n
+}
+
+// modelCaps supplements discovery only where the API lacks structured rules.
+// Recraft documents these four Styles models as PNG/JPEG/WebP, shortest edge
+// >=256: https://openrouter.ai/recraft/recraft-v4-styles-vector (2026-10-14).
+// Counts and output formats remain discovery-driven; other models are untouched.
+func modelCaps(m imageModel) provider.Capabilities {
+	caps := capsFrom(m.SupportedParameters)
+	switch m.ID {
+	case "recraft/recraft-v4-styles", "recraft/recraft-v4-styles-pro",
+		"recraft/recraft-v4-styles-vector", "recraft/recraft-v4-styles-pro-vector":
+		caps.ReferenceMediaTypes = []string{"image/png", "image/jpeg", "image/webp"}
+		caps.ReferenceMinWidth, caps.ReferenceMinHeight = 256, 256
 	}
 	return caps
 }
@@ -288,16 +322,12 @@ func (r generateResponse) reportedSeed() *int64 {
 }
 
 func (c *Client) Generate(ctx context.Context, r provider.GenerateRequest) (provider.GenerateResult, error) {
-	if len(r.ReferenceImages) > 0 {
-		// Guard: reject reference images for a model that cannot accept them.
-		// Capability is known to the caller; we also need the model's caps here.
-		caps, err := c.capabilitiesFor(ctx, r.Model)
-		if err != nil {
-			return provider.GenerateResult{}, err
-		}
-		if !caps.AcceptsReferenceImages {
-			return provider.GenerateResult{}, fmt.Errorf("%w: %s", provider.ErrReferenceImagesUnsupported, r.Model)
-		}
+	caps, err := c.capabilitiesFor(ctx, r.Model)
+	if err != nil {
+		return provider.GenerateResult{}, err
+	}
+	if err := provider.ValidateReferences(ctx, caps, r.ReferenceImages, true); err != nil {
+		return provider.GenerateResult{}, fmt.Errorf("%s: %w", r.Model, err)
 	}
 
 	payload := generatePayload{
@@ -366,7 +396,9 @@ func (c *Client) capabilitiesFor(ctx context.Context, id string) (provider.Capab
 func dataURL(ref provider.ReferenceImage) string {
 	mt := ref.MediaType
 	if mt == "" {
-		mt = "image/png"
+		// Generate has already validated these bytes; infer an omitted label.
+		actual, _, _ := provider.InspectReference(ref.Data)
+		mt = actual.MediaType
 	}
 	return "data:" + mt + ";base64," + base64.StdEncoding.EncodeToString(ref.Data)
 }

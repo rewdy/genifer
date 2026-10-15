@@ -160,7 +160,14 @@ func (m Model) pickerView() string {
 func capHint(c provider.Capabilities) string {
 	var parts []string
 	if c.AcceptsReferenceImages {
-		parts = append(parts, "img2img")
+		if c.ReferenceMin != nil && *c.ReferenceMin > 0 {
+			parts = append(parts, "refs required")
+		} else {
+			parts = append(parts, "img2img")
+		}
+	}
+	if len(c.OutputFormats) == 1 && c.OutputFormats[0] == "svg" {
+		parts = append(parts, "SVG")
 	}
 	if len(c.AspectRatios) > 0 {
 		parts = append(parts, "aspect")
@@ -175,30 +182,43 @@ func capHint(c provider.Capabilities) string {
 }
 
 func (m Model) composeView() string {
-	ctrls := controlsFor(m.currentCaps())
-	var extras []string
-	if ctrls.ShowReference {
-		extras = append(extras, "paste image: ctrl+v")
+	caps := m.currentCaps()
+	ctrls := controlsFor(caps)
+	var settings []string
+	if len(caps.OutputFormats) == 1 && caps.OutputFormats[0] == "svg" {
+		settings = append(settings, "Output: SVG")
 	}
 	if ctrls.ShowAspectRatio {
-		extras = append(extras, "aspect: "+m.aspectRatio+" (ctrl+a to change)")
+		settings = append(settings, "Aspect: "+m.aspectRatio)
 	}
 	if ctrls.ShowSeed {
-		extras = append(extras, "seed supported")
+		settings = append(settings, "Seed supported")
 	}
-	hint := ""
-	if len(extras) > 0 {
-		hint = "\n" + styleFaint.Render(strings.Join(extras, " · "))
+	var details []string
+	if len(settings) > 0 {
+		details = append(details, strings.Join(settings, " · "))
 	}
-	pills := ""
-	if ctrls.ShowReference && len(m.refImages) > 0 {
-		pills = "\n" + refImagePills(len(m.refImages))
+	if guidance := m.referenceGuidance(); guidance != "" {
+		details = append(details, guidance, "Reference file: @/path/to/image")
 	}
 	// Paint the prompt over the input background so the whole input box reads as
 	// one area. The textarea's own placeholder path leaves its padding unstyled,
 	// so this is repaired here rather than left to the terminal default.
 	prompt := paintOver(m.prompt.View(), m.prompt.Width(), inputBG)
-	return fmt.Sprintf("Model: %s%s%s\n\n%s", m.currentModelID(), hint, pills, prompt)
+	out := fmt.Sprintf("Model: %s\n\n%s", m.currentModelID(), prompt)
+	if len(details) > 0 {
+		// Wrap plain text first, then style each physical row. Wrapping an already
+		// styled string can leave continuation rows without their foreground.
+		rows := strings.Split(ansi.Wrap(strings.Join(details, "\n"), m.contentWidth(), ""), "\n")
+		for i, row := range rows {
+			rows[i] = styleFaint.Render(row)
+		}
+		out += "\n\n" + strings.Join(rows, "\n")
+	}
+	if ctrls.ShowReference && len(m.refImages) > 0 {
+		out += "\n" + refImagePills(len(m.refImages))
+	}
+	return out
 }
 
 // styleAspectSel highlights the cursor row in the aspect-ratio dialog.
@@ -262,7 +282,40 @@ func (m Model) reviewView() string {
 	if n := len(m.refImages); n > 0 {
 		out += "\n" + styleFaint.Render(fmt.Sprintf("%d reference image(s) attached", n))
 	}
-	return out
+	if guidance := m.referenceGuidance(); guidance != "" {
+		out += "\n" + styleFaint.Render(guidance)
+	}
+	if formats := m.currentCaps().OutputFormats; len(formats) == 1 && formats[0] == "svg" {
+		out += "\n" + styleFaint.Render("Output: SVG")
+	}
+	return ansi.Wrap(out, m.contentWidth(), "")
+}
+
+// referenceGuidance describes known requirements without inferring limits.
+func (m Model) referenceGuidance() string {
+	c := m.currentCaps()
+	if !c.AcceptsReferenceImages {
+		return ""
+	}
+	rule := "References optional"
+	if c.ReferenceMin != nil && *c.ReferenceMin > 0 {
+		rule = fmt.Sprintf("References required: at least %d", *c.ReferenceMin)
+	}
+	if c.ReferenceMax != nil {
+		rule += fmt.Sprintf(" · maximum %d", *c.ReferenceMax)
+	}
+	rule += fmt.Sprintf(" · %d attached", len(m.refImages))
+	if len(c.ReferenceMediaTypes) > 0 {
+		var formats []string
+		for _, mt := range c.ReferenceMediaTypes {
+			formats = append(formats, strings.TrimPrefix(mt, "image/"))
+		}
+		rule += "\nReference formats: " + strings.Join(formats, ", ")
+	}
+	if c.ReferenceMinWidth > 0 || c.ReferenceMinHeight > 0 {
+		rule += fmt.Sprintf(" · minimum %d x %d pixels", c.ReferenceMinWidth, c.ReferenceMinHeight)
+	}
+	return rule
 }
 
 func (m Model) resultView() string {
