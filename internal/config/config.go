@@ -29,6 +29,14 @@ type Config struct {
 	// May be a {env:}/{cmd:} directive. Empty means use the OS default.
 	OpenCommand Value `yaml:"open_command"`
 
+	// SmartFilenames enables generating descriptive file names for saved
+	// images via a text model instead of timestamps.
+	SmartFilenames bool `yaml:"smart_filenames"`
+
+	// FilenameModel is the OpenRouter text model used to generate descriptive
+	// file names when SmartFilenames is enabled.
+	FilenameModel Value `yaml:"filename_model"`
+
 	// History enables persisting a record of successful generations to the
 	// app-owned history file. It defaults to enabled; an absent key means
 	// enabled. It is a pointer so an unset value is distinguishable from an

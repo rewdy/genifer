@@ -32,12 +32,12 @@ for scripting) without creating or opening anything.
 
 You can also edit the common settings from inside the TUI: press `c` on the
 model picker to open the config view, which is a direct editor of your
-`config.yaml`. It edits three keys — `output_dir` (save location), `auto_open`,
-and `history` — writing them back to the file while leaving your comments and
-other settings (such as the `api_key` directive) intact. A changed save
-location and auto-open preference also take effect for the current session, so
-you don't need to restart. Everything else in `config.yaml` stays
-file-/onboarding-managed.
+`config.yaml`. It edits five keys — `output_dir` (save location), `auto_open`,
+`history`, `smart_filenames`, and `filename_model` — writing them back to the
+file while leaving your comments and other settings (such as the `api_key`
+directive) intact. A changed save location, auto-open preference, and smart
+file naming also take effect for the current session, so you don't need to
+restart. Everything else in `config.yaml` stays file-/onboarding-managed.
 
 New users don't need either command: on first launch with no config, genifer
 walks you through creating one — see the first-run section of the
@@ -72,6 +72,18 @@ auto_open: false
 # is written and the history view reports that it's off). History keeps every
 # entry — delete history-cache.json to clear it.
 history: true
+
+# Generate descriptive file names using a text model instead of timestamps.
+# When enabled, each saved image is named from a short text completion of your
+# prompt using filename_model (default: timestamps). Naming is best-effort:
+# a failed or empty reply falls back to the timestamped name.
+smart_filenames: false
+
+# The OpenRouter text model used to generate descriptive file names when
+# smart_filenames is enabled. Any model from https://openrouter.ai/models
+# works; a small, cheap one (e.g. openai/gpt-4o-mini) is fine. May be a value
+# directive. Omit or leave empty to keep timestamped names.
+# filename_model: "openai/gpt-4o-mini"
 ```
 
 ## Value directives

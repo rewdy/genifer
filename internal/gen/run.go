@@ -76,7 +76,12 @@ func errText(err error) string {
 // Run generates one image for the draft and saves it to dir. It is safe to call
 // off the UI loop; cancelling ctx aborts an in-flight request. Run never
 // returns a bare error — every failure is classified in the Outcome.
-func Run(ctx context.Context, p provider.Provider, d Draft, dir string) Outcome {
+// Run generates one image for the draft and saves it to dir. It is safe to call
+// off the UI loop; cancelling ctx aborts an in-flight request. Run never
+// returns a bare error — every failure is classified in the Outcome. When opts
+// enables smart naming, a descriptive base name is derived for the saved file
+// (falling back to a timestamp if naming fails or is unconfigured).
+func Run(ctx context.Context, p provider.Provider, d Draft, dir string, opts NameOptions) Outcome {
 	req, err := d.Request()
 	if err != nil {
 		return Outcome{Failure: FailureOther, Err: err}
@@ -85,7 +90,8 @@ func Run(ctx context.Context, p provider.Provider, d Draft, dir string) Outcome 
 	if err != nil {
 		return Outcome{Failure: classify(ctx, err), Err: err}
 	}
-	path, err := Save(dir, res)
+	base := nameFor(ctx, p, d, opts)
+	path, err := Save(dir, res, base)
 	if err != nil {
 		return Outcome{Failure: FailureSave, Err: err}
 	}

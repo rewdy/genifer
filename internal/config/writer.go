@@ -16,6 +16,8 @@ type EditableSettings struct {
 	OutputDir string // literal output_dir value (not a directive)
 	AutoOpen  bool
 	History   bool
+    SmartFilenames bool // smart_filenames directive
+    FilenameModel  string // filename_model directive
 }
 
 // WriteSettings updates output_dir, auto_open, and history in the config.yaml
@@ -36,6 +38,8 @@ func WriteSettings(path string, s EditableSettings) error {
 	updated = setScalarKey(updated, "output_dir", quoteYAML(s.OutputDir))
 	updated = setScalarKey(updated, "auto_open", strconv.FormatBool(s.AutoOpen))
 	updated = setScalarKey(updated, "history", strconv.FormatBool(s.History))
+	updated = setScalarKey(updated, "smart_filenames", strconv.FormatBool(s.SmartFilenames))
+	updated = setScalarKey(updated, "filename_model", fmt.Sprintf("%s", s.FilenameModel))
 
 	if err := writeFileAtomic(path, []byte(updated)); err != nil {
 		return err

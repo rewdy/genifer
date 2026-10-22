@@ -470,8 +470,12 @@ func (m Model) runDraft(d gen.Draft) (Model, tea.Cmd) {
 	m.cancel = cancel
 	p := m.deps.Provider
 	dir := m.outputDir
+	nameOpts := gen.NameOptions{
+		Enabled: m.deps.Config.SmartFilenames,
+		Model:   string(m.deps.Config.FilenameModel),
+	}
 	cmd := func() tea.Msg {
-		return generatedMsg{outcome: gen.Run(ctx, p, d, dir)}
+		return generatedMsg{outcome: gen.Run(ctx, p, d, dir, nameOpts)}
 	}
 	return m, tea.Batch(cmd, m.spinner.Tick)
 }

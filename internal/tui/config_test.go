@@ -57,7 +57,7 @@ func TestConfigViewShowsCurrentValues(t *testing.T) {
 	// history default is enabled, auto_open default false.
 	m = m.openConfig(phasePicker)
 	out := ansi.Strip(m.configView())
-	for _, want := range []string{"Save location", "Auto-open on complete", "Keep prompt history", "[off]", "[on]"} {
+	for _, want := range []string{"Save location", "Auto-open on complete", "Keep prompt history", "Smart file names", "File-name model", "[off]", "[on]", "https://openrouter.ai/models"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("config view missing %q; got:\n%s", want, out)
 		}
@@ -206,5 +206,46 @@ func TestConfigRejectsInvalidSaveLocation(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Error("config.yaml was written despite an invalid save location")
+	}
+}
+
+// 4.1: toggling smart file names and entering a model persists both to
+// config.yaml and applies them live to the in-memory config.
+func TestConfigSmartFilenamesRoundTrip(t *testing.T) {
+	m := configModel(t)
+	m = m.openConfig(phasePicker)
+
+	// Move down to the smart file names toggle (save location -> auto-open ->
+	// history -> smart file names) and toggle it on.
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyDown}, {Type: tea.KeyDown}, {Type: tea.KeyDown}} {
+		down, _ := m.handleConfigKey(key)
+		m = down.(Model)
+	}
+	tog, _ := m.handleConfigKey(spaceKey())
+	m = tog.(Model)
+
+	// Move to the filename-model field and type a model id.
+	down, _ := m.handleConfigKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = down.(Model)
+	m = typeInto(m, "openai/gpt-4o-mini")
+
+	confirmed, _ := m.handleConfigKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = confirmed.(Model)
+
+	if !m.deps.Config.SmartFilenames {
+		t.Error("SmartFilenames not applied to in-memory config")
+	}
+	if m.deps.Config.FilenameModel != "openai/gpt-4o-mini" {
+		t.Errorf("FilenameModel = %q, want openai/gpt-4o-mini", m.deps.Config.FilenameModel)
+	}
+	reloaded, err := config.Load(m.deps.ConfigPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !reloaded.SmartFilenames {
+		t.Error("smart_filenames not persisted to config.yaml")
+	}
+	if reloaded.FilenameModel != "openai/gpt-4o-mini" {
+		t.Errorf("filename_model persisted = %q", reloaded.FilenameModel)
 	}
 }

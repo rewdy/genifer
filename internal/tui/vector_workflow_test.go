@@ -61,7 +61,7 @@ func TestSVGGenerationSaveAndOpen(t *testing.T) {
 	}))
 	defer srv.Close()
 	p := openrouter.New(func(context.Context) (string, error) { return "test-key", nil }, openrouter.WithBaseURL(srv.URL), openrouter.WithHTTPClient(srv.Client()))
-	out := gen.Run(context.Background(), p, gen.Draft{Model: model, Prompt: "red graphic", ReferenceImages: []provider.ReferenceImage{{Data: reference.Bytes(), MediaType: "image/png"}}}, t.TempDir())
+	out := gen.Run(context.Background(), p, gen.Draft{Model: model, Prompt: "red graphic", ReferenceImages: []provider.ReferenceImage{{Data: reference.Bytes(), MediaType: "image/png"}}}, t.TempDir(), gen.NameOptions{})
 	if out.Failure != gen.FailureNone || out.CostUSD != 0.055 || posts != 1 {
 		t.Fatalf("outcome %+v, posts %d", out, posts)
 	}

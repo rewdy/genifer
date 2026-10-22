@@ -132,6 +132,34 @@ The provider SHALL accept a cancellation signal for in-flight generation and mod
 - **WHEN** a generation request is cancelled before completion
 - **THEN** the provider stops waiting for the response and returns a cancellation outcome rather than a result
 
+### Requirement: Provider text completion for short derived text
+
+The provider interface SHALL expose a text-completion operation that, given a
+model identifier and a prompt, returns a short piece of generated text (used by
+the system to derive a filename from a generation prompt). Code above the
+provider SHALL depend only on this interface and MUST NOT depend on
+provider-specific request or response formats. The operation SHALL honor
+cancellation and SHALL map failures to the same actionable error categories as
+image generation (at minimum authentication failure, insufficient credit, and a
+general request failure) so callers can treat them uniformly. The OpenRouter
+implementation SHALL fulfill this by calling the provider's chat/text
+completions endpoint with a Bearer-token `Authorization` header.
+
+#### Scenario: Short text returned
+
+- **WHEN** the text-completion operation is called with a configured model and a prompt
+- **THEN** it returns the model's generated text, trimmed of surrounding whitespace
+
+#### Scenario: Cancellation aborts the request
+
+- **WHEN** the caller cancels the context during an in-flight text-completion request
+- **THEN** the underlying network call is aborted promptly and the operation returns a cancellation error
+
+#### Scenario: Failures mapped to actionable errors
+
+- **WHEN** the text-completion request is rejected for authentication or insufficient credit, or otherwise fails
+- **THEN** the operation returns the corresponding actionable error category rather than a raw provider error
+
 ### Requirement: Reference input validation
 The provider SHALL reject requests outside known reference-count bounds before sending a generation request, including requests with no references when references are required. It SHALL reject unsupported references using the existing unsupported-reference error, and distinguish invalid reference count, format, or dimensions with an actionable validation error. Recraft V4 Styles models (raster and vector, including Pro variants) SHALL accept only PNG, JPEG, or WebP references whose width and height are each at least 256 pixels. Other models SHALL retain their existing input rules except for advertised count bounds. Validation and discovery SHALL honor cancellation.
 

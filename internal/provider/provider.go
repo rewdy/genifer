@@ -21,6 +21,11 @@ type Provider interface {
 	// Generate produces a single image for the request. It honors ctx
 	// cancellation, aborting the underlying call promptly.
 	Generate(ctx context.Context, req GenerateRequest) (GenerateResult, error)
+
+	// GenerateText produces a short text completion for the request (used for
+	// descriptive file names). It honors ctx cancellation; a short, trimmed
+	// response is returned as-is.
+	GenerateText(ctx context.Context, req TextRequest) (string, error)
 }
 
 // Model describes an image model offered by a provider.
@@ -57,6 +62,14 @@ type Capabilities struct {
 	// images with a transparent background. A transparent background also requires
 	// an alpha-capable output format (e.g. PNG or WebP).
 	SupportsTransparentBackground bool
+}
+
+// TextRequest is a provider-agnostic request for a short text completion.
+type TextRequest struct {
+	// Model is the id of the text model to use.
+	Model string
+	// Prompt is the instruction or question to complete.
+	Prompt string
 }
 
 // ReferenceImage is an input image supplied for editing or style guidance.

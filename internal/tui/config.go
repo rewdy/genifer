@@ -16,6 +16,8 @@ const (
 	fieldSaveLocation configField = iota
 	fieldAutoOpen
 	fieldHistory
+	fieldSmartFilenames
+	fieldFilenameModel
 	configFieldCount
 )
 
@@ -23,33 +25,41 @@ const (
 // from the loaded Config when the view opens and written back to config.yaml on
 // confirm.
 type configState struct {
-	cursor   configField
-	saveLoc  textinput.Model
-	autoOpen bool
-	history  bool
-	err      string // last validation error, shown until the next edit
+	cursor         configField
+	saveLoc        textinput.Model
+	filenameModel  textinput.Model
+	autoOpen       bool
+	history        bool
+	smartFilenames bool
+	err            string // last validation error, shown until the next edit
 }
 
 // newConfigState builds the editor state from the current session settings.
 // saveLoc is pre-filled with the raw output_dir the user configured (which may
 // be empty, meaning "use the default"), not the resolved path, so confirming
 // without edits does not rewrite a relative/keyword value into an absolute one.
-func newConfigState(rawOutputDir string, autoOpen, history bool) configState {
+func newConfigState(rawOutputDir string, autoOpen, history, smartFilenames bool, filenameModel string) configState {
 	ti := textinput.New()
 	ti.Prompt = "› "
 	ti.Placeholder = "default (~/Pictures/genifer)"
 	ti.SetValue(rawOutputDir)
+	fmi := textinput.New()
+	fmi.Prompt = "› "
+	fmi.Placeholder = "e.g. openai/gpt-4o-mini (see https://openrouter.ai/models)"
+	fmi.SetValue(filenameModel)
 	return configState{
-		cursor:   fieldSaveLocation,
-		saveLoc:  ti,
-		autoOpen: autoOpen,
-		history:  history,
+		cursor:         fieldSaveLocation,
+		saveLoc:        ti,
+		filenameModel:  fmi,
+		autoOpen:       autoOpen,
+		history:        history,
+		smartFilenames: smartFilenames,
 	}
 }
 
 // openConfig enters the config view, seeding the editor from current settings.
 func (m Model) openConfig(from phase) Model {
-	m.cfg = newConfigState(string(m.deps.Config.OutputDir), m.deps.Config.AutoOpen, m.deps.Config.HistoryEnabled())
+	m.cfg = newConfigState(string(m.deps.Config.OutputDir), m.deps.Config.AutoOpen, m.deps.Config.HistoryEnabled(), m.deps.Config.SmartFilenames, string(m.deps.Config.FilenameModel))
 	m.cfg.saveLoc.Focus()
 	m.configPrev = from
 	m.phase = phaseConfig
@@ -67,48 +77,67 @@ func (m Model) handleConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "up", "shift+tab":
 		m.cfg.saveLoc.Blur()
+		m.cfg.filenameModel.Blur()
 		if m.cfg.cursor > 0 {
 			m.cfg.cursor--
 		}
-		m.syncSaveLocFocus()
+		m.syncConfigFocus()
 		return m, nil
 	case "down", "tab":
 		if m.cfg.cursor < configFieldCount-1 {
 			m.cfg.cursor++
 		}
-		m.syncSaveLocFocus()
+		m.syncConfigFocus()
 		return m, nil
 	case " ":
-		// Toggle the focused boolean field; ignored on the text field.
+		// Toggle the focused boolean field; ignored on the text fields.
 		switch m.cfg.cursor {
 		case fieldAutoOpen:
 			m.cfg.autoOpen = !m.cfg.autoOpen
+			m.cfg.err = ""
 			return m, nil
 		case fieldHistory:
 			m.cfg.history = !m.cfg.history
+			m.cfg.err = ""
+			return m, nil
+		case fieldSmartFilenames:
+			m.cfg.smartFilenames = !m.cfg.smartFilenames
+			m.cfg.err = ""
 			return m, nil
 		}
 	case "enter":
 		return m.confirmConfig()
 	}
 
-	// Otherwise, feed the save-location text field when it is focused.
-	if m.cfg.cursor == fieldSaveLocation {
+	// Otherwise, feed the focused text field.
+	switch m.cfg.cursor {
+	case fieldSaveLocation:
 		var cmd tea.Cmd
 		m.cfg.saveLoc, cmd = m.cfg.saveLoc.Update(msg)
 		m.cfg.err = "" // editing clears a stale validation error
+		return m, cmd
+	case fieldFilenameModel:
+		var cmd tea.Cmd
+		m.cfg.filenameModel, cmd = m.cfg.filenameModel.Update(msg)
+		m.cfg.err = ""
 		return m, cmd
 	}
 	return m, nil
 }
 
-// syncSaveLocFocus keeps the text-input focus in step with the cursor so the
-// caret only blinks when the save-location row is active.
-func (m *Model) syncSaveLocFocus() {
-	if m.cfg.cursor == fieldSaveLocation {
+// syncConfigFocus keeps the text-input focus in step with the cursor so the
+// caret only blinks when a text row is active.
+func (m *Model) syncConfigFocus() {
+	switch m.cfg.cursor {
+	case fieldSaveLocation:
+		m.cfg.filenameModel.Blur()
 		m.cfg.saveLoc.Focus()
-	} else {
+	case fieldFilenameModel:
 		m.cfg.saveLoc.Blur()
+		m.cfg.filenameModel.Focus()
+	default:
+		m.cfg.saveLoc.Blur()
+		m.cfg.filenameModel.Blur()
 	}
 }
 
@@ -129,46 +158,59 @@ func (m Model) confirmConfig() (tea.Model, tea.Cmd) {
 	}
 
 	if err := config.WriteSettings(m.deps.ConfigPath, config.EditableSettings{
-		OutputDir: raw,
-		AutoOpen:  m.cfg.autoOpen,
-		History:   m.cfg.history,
+		OutputDir:      raw,
+		AutoOpen:       m.cfg.autoOpen,
+		History:        m.cfg.history,
+		SmartFilenames: m.cfg.smartFilenames,
+		FilenameModel:  m.cfg.filenameModel.Value(),
 	}); err != nil {
 		m.cfg.err = "Could not write config: " + err.Error()
 		return m, nil
 	}
 
-	// Apply live: the next generation uses the new location and auto-open /
-	// history preferences without a restart.
+	// Apply live: the next generation uses the new settings without a restart.
 	m.outputDir = resolved
 	m.deps.Config.OutputDir = config.Value(raw)
 	m.deps.Config.AutoOpen = m.cfg.autoOpen
 	h := m.cfg.history
 	m.deps.Config.History = &h
+	m.deps.Config.SmartFilenames = m.cfg.smartFilenames
+	m.deps.Config.FilenameModel = config.Value(m.cfg.filenameModel.Value())
 
 	m.phase = m.configPrev
 	m.status = "Settings saved"
 	return m, nil
 }
 
-// updateConfig forwards non-key messages (e.g. cursor blink) to the text input.
+// updateConfig forwards non-key messages (e.g. cursor blink) to the focused
+// text input.
 func (m Model) updateConfig(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.cfg.cursor == fieldSaveLocation {
+	switch m.cfg.cursor {
+	case fieldSaveLocation:
 		var cmd tea.Cmd
 		m.cfg.saveLoc, cmd = m.cfg.saveLoc.Update(msg)
+		return m, cmd
+	case fieldFilenameModel:
+		var cmd tea.Cmd
+		m.cfg.filenameModel, cmd = m.cfg.filenameModel.Update(msg)
 		return m, cmd
 	}
 	return m, nil
 }
 
-// configView renders the editor: a save-location field and two toggles, with
-// the focused row marked and any validation error shown.
+// configView renders the editor: a save-location field, two toggles, the
+// smart-filename toggle, and the filename-model field, with the focused row
+// marked and any validation error shown.
 func (m Model) configView() string {
 	rows := []string{
 		m.configRow(fieldSaveLocation, "Save location", m.cfg.saveLoc.View()),
 		m.configRow(fieldAutoOpen, "Auto-open on complete", toggleLabel(m.cfg.autoOpen)),
 		m.configRow(fieldHistory, "Keep prompt history", toggleLabel(m.cfg.history)),
+		m.configRow(fieldSmartFilenames, "Smart file names", toggleLabel(m.cfg.smartFilenames)),
+		m.configRow(fieldFilenameModel, "File-name model", m.cfg.filenameModel.View()),
 	}
 	body := "Settings:\n\n" + lipgloss.JoinVertical(lipgloss.Left, rows...)
+	body += "\n" + styleFaint.Render("Model list: https://openrouter.ai/models")
 	if m.cfg.err != "" {
 		body += "\n\n" + styleErr.Render(m.cfg.err)
 	}

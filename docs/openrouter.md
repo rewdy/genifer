@@ -91,6 +91,14 @@ The relevant endpoints share the `https://openrouter.ai` host:
 | Discover models and advertised parameters | `GET /api/v1/images/models` |
 | Inspect a model's endpoint capabilities and pricing | `GET /api/v1/images/models/{author}/{slug}/endpoints` |
 | Generate one image | `POST /api/v1/images` |
+| Generate a short text completion | `POST /api/v1/chat/completions` |
+
+The chat-completions endpoint is used for smart file naming when
+`smart_filenames` is enabled: genifer posts your prompt with a short system
+instruction and uses the trimmed reply as the saved file's base name. Naming
+uses the same API key as image generation, is charged normally by OpenRouter,
+and is best-effort — a failed or empty reply falls back to a timestamped name
+without affecting the saved image.
 
 The discovery descriptor for `input_references` includes `min` and `max` count
 bounds when known. Model-level capabilities combine endpoints; per-endpoint

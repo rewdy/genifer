@@ -424,6 +424,68 @@ func (c *Client) Generate(ctx context.Context, r provider.GenerateRequest) (prov
 	return provider.GenerateResult{Data: data, MediaType: parsed.Data[0].MediaType, CostUSD: parsed.Usage.Cost, Seed: parsed.reportedSeed()}, nil
 }
 
+// --- Text completion ------------------------------------------------------
+
+type chatCompletionPayload struct {
+	Model    string        `json:"model"`
+	Messages []chatMessage `json:"messages"`
+}
+
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type chatCompletionResponse struct {
+	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+// GenerateText POSTs a short system+user messages payload to /chat/completions
+// and returns the trimmed first completion. It honors ctx cancellation and maps
+// auth/credit failures to the provider sentinels.
+func (c *Client) GenerateText(ctx context.Context, req provider.TextRequest) (string, error) {
+	payload := chatCompletionPayload{
+		Model: req.Model,
+		Messages: []chatMessage{
+			{Role: "system", Content: "You name image files. Reply with one short, descriptive, filesystem-safe file name with no extension, using letters, numbers, spaces, and hyphens only."},
+			{Role: "user", Content: req.Prompt},
+		},
+	}
+	buf, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("openrouter: encoding chat request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(buf))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if err := c.authHeader(ctx, httpReq); err != nil {
+		return "", err
+	}
+	resp, err := c.http.Do(httpReq)
+	if err != nil {
+		return "", mapTransportError(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", mapHTTPError(resp.StatusCode, body)
+	}
+	var parsed chatCompletionResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", fmt.Errorf("openrouter: decoding chat response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return "", fmt.Errorf("openrouter: empty chat response")
+	}
+	return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+}
+
 // capabilitiesFor looks up a single model's capabilities via Models.
 func (c *Client) capabilitiesFor(ctx context.Context, id string) (provider.Capabilities, error) {
 	models, err := c.Models(ctx)

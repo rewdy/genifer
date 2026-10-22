@@ -25,6 +25,9 @@ func (p fixtureProvider) Generate(ctx context.Context, _ provider.GenerateReques
 	}
 	return provider.GenerateResult{Data: p.png, MediaType: "image/png"}, nil
 }
+func (p fixtureProvider) GenerateText(context.Context, provider.TextRequest) (string, error) {
+	return "preview-fixture", nil
+}
 func runApp() error {
 	dir, err := os.MkdirTemp("", "genifer-preview-check-")
 	if err != nil {

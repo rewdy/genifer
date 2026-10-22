@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"image"
 	"image/png"
@@ -352,4 +353,70 @@ func testPNG(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return b.Bytes()
+}
+
+// 2.2 GenerateText posts a chat completion and returns the trimmed content;
+// auth and credit failures map to the provider sentinels.
+func TestGenerateText(t *testing.T) {
+	var gotPath string
+	var gotBody []byte
+	var gotAuth string
+	c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Write([]byte(`{"choices":[{"message":{"content":"  a-descriptive-name  "}}]}`))
+	}))
+	defer srv.Close()
+
+	got, err := c.GenerateText(context.Background(), provider.TextRequest{Model: "some/text-model", Prompt: "a cozy lighthouse at dusk"})
+	if err != nil {
+		t.Fatalf("GenerateText: %v", err)
+	}
+	if gotPath != "/chat/completions" {
+		t.Errorf("path = %q, want /chat/completions", gotPath)
+	}
+	if gotAuth != "Bearer test-key" {
+		t.Errorf("auth header = %q", gotAuth)
+	}
+	var payload chatCompletionPayload
+	if err := json.Unmarshal(gotBody, &payload); err != nil {
+		t.Fatalf("payload is not valid chat JSON: %v", err)
+	}
+	if payload.Model != "some/text-model" {
+		t.Errorf("payload model = %q", payload.Model)
+	}
+	if len(payload.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(payload.Messages))
+	}
+	if payload.Messages[1].Content != "a cozy lighthouse at dusk" {
+		t.Errorf("user content = %q", payload.Messages[1].Content)
+	}
+	if got != "a-descriptive-name" {
+		t.Errorf("returned text = %q, want trimmed content", got)
+	}
+}
+
+func TestGenerateTextErrorMapping(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		want   error
+	}{
+		{"auth", http.StatusUnauthorized, provider.ErrAuth},
+		{"credit", http.StatusPaymentRequired, provider.ErrInsufficientCredit},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, srv := newTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				w.Write([]byte(`{"error":{"message":"boom"}}`))
+			}))
+			defer srv.Close()
+			_, err := c.GenerateText(context.Background(), provider.TextRequest{Model: "m", Prompt: "p"})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
 }

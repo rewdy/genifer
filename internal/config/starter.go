@@ -44,6 +44,8 @@ auto_open: false
 # reuse past prompts. Enabled by default; set to false to turn it off. History
 # keeps every entry — delete history-cache.json to clear it.
 history: true
+smart_filenames: false
+filename_model: ""
 `
 
 // StarterContent returns the commented starter config.yaml body with apiKey

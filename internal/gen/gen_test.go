@@ -52,7 +52,7 @@ func TestDraftEmptyPromptBlocked(t *testing.T) {
 
 func TestSaveSuccess(t *testing.T) {
 	dir := t.TempDir()
-	path, err := Save(dir, provider.GenerateResult{Data: []byte("png"), MediaType: "image/png"})
+	path, err := Save(dir, provider.GenerateResult{Data: []byte("png"), MediaType: "image/png"}, "")
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestSaveSuccess(t *testing.T) {
 
 func TestSaveCreatesDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "does", "not", "exist")
-	_, err := Save(dir, provider.GenerateResult{Data: []byte("x"), MediaType: "image/webp"})
+	_, err := Save(dir, provider.GenerateResult{Data: []byte("x"), MediaType: "image/webp"}, "")
 	if err != nil {
 		t.Fatalf("Save should create dir: %v", err)
 	}
@@ -96,8 +96,8 @@ func TestSaveNoCollision(t *testing.T) {
 	// Freeze time so both saves compute the same base name.
 	now = func() time.Time { return time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC) }
 	defer func() { now = time.Now }()
-	p1, _ := Save(dir, provider.GenerateResult{Data: []byte("a"), MediaType: "image/png"})
-	p2, _ := Save(dir, provider.GenerateResult{Data: []byte("b"), MediaType: "image/png"})
+	p1, _ := Save(dir, provider.GenerateResult{Data: []byte("a"), MediaType: "image/png"}, "")
+	p2, _ := Save(dir, provider.GenerateResult{Data: []byte("b"), MediaType: "image/png"}, "")
 	if p1 == p2 {
 		t.Fatalf("expected distinct paths, both %q", p1)
 	}
@@ -107,7 +107,7 @@ func TestSaveWriteFailure(t *testing.T) {
 	// Point dir at a path whose parent is a file, so MkdirAll fails.
 	f := filepath.Join(t.TempDir(), "afile")
 	os.WriteFile(f, []byte("x"), 0o600)
-	_, err := Save(filepath.Join(f, "sub"), provider.GenerateResult{Data: []byte("x"), MediaType: "image/png"})
+	_, err := Save(filepath.Join(f, "sub"), provider.GenerateResult{Data: []byte("x"), MediaType: "image/png"}, "")
 	if err == nil {
 		t.Fatal("expected error when output dir cannot be created")
 	}
@@ -145,13 +145,19 @@ func (f fakeProvider) Pricing(context.Context, string) (provider.Price, error) {
 	return provider.Price{}, nil
 }
 func (f fakeProvider) Generate(ctx context.Context, _ provider.GenerateRequest) (provider.GenerateResult, error) {
+	if err := ctx.Err(); err != nil {
+		return provider.GenerateResult{}, err
+	}
 	return f.res, f.err
+}
+func (f fakeProvider) GenerateText(context.Context, provider.TextRequest) (string, error) {
+	return "fake-name", nil
 }
 
 func TestRunSuccess(t *testing.T) {
 	dir := t.TempDir()
 	p := fakeProvider{res: provider.GenerateResult{Data: []byte("img"), MediaType: "image/png"}}
-	out := Run(context.Background(), p, Draft{Prompt: "cat", Model: "m"}, dir)
+	out := Run(context.Background(), p, Draft{Prompt: "cat", Model: "m"}, dir, NameOptions{})
 	if out.Failure != FailureNone {
 		t.Fatalf("failure = %v (%v)", out.Failure, out.Err)
 	}
@@ -176,7 +182,7 @@ func TestRunFailureClassification(t *testing.T) {
 		{errors.New("boom"), FailureOther},
 	}
 	for _, tc := range cases {
-		out := Run(context.Background(), fakeProvider{err: tc.err}, Draft{Prompt: "p", Model: "m"}, dir)
+		out := Run(context.Background(), fakeProvider{err: tc.err}, Draft{Prompt: "p", Model: "m"}, dir, NameOptions{})
 		if out.Failure != tc.want {
 			t.Errorf("err %v -> failure %v, want %v", tc.err, out.Failure, tc.want)
 		}
@@ -191,18 +197,18 @@ func TestRunRetryable(t *testing.T) {
 		t.Fatal("input failures need editing")
 	}
 	dir := t.TempDir()
-	gen := Run(context.Background(), fakeProvider{err: provider.ErrGenerationFailed}, Draft{Prompt: "p", Model: "m"}, dir)
+	gen := Run(context.Background(), fakeProvider{err: provider.ErrGenerationFailed}, Draft{Prompt: "p", Model: "m"}, dir, NameOptions{})
 	if !gen.Retryable() {
 		t.Error("generation failure should be retryable")
 	}
-	credit := Run(context.Background(), fakeProvider{err: provider.ErrInsufficientCredit}, Draft{Prompt: "p", Model: "m"}, dir)
+	credit := Run(context.Background(), fakeProvider{err: provider.ErrInsufficientCredit}, Draft{Prompt: "p", Model: "m"}, dir, NameOptions{})
 	if credit.Retryable() {
 		t.Error("credit failure should not be retryable")
 	}
 }
 
 func TestRunEmptyPrompt(t *testing.T) {
-	out := Run(context.Background(), fakeProvider{}, Draft{Prompt: "", Model: "m"}, t.TempDir())
+	out := Run(context.Background(), fakeProvider{}, Draft{Prompt: "", Model: "m"}, t.TempDir(), NameOptions{})
 	if !errors.Is(out.Err, ErrEmptyPrompt) {
 		t.Fatalf("err = %v, want ErrEmptyPrompt", out.Err)
 	}
@@ -216,7 +222,7 @@ func TestRunOutcomeCarriesSeed(t *testing.T) {
 
 	// Minted draft seed, provider reports none: outcome carries the draft seed.
 	p := fakeProvider{res: provider.GenerateResult{Data: []byte("x"), MediaType: "image/png"}}
-	out := Run(context.Background(), p, Draft{Prompt: "p", Model: "m", Seed: &draftSeed}, dir)
+	out := Run(context.Background(), p, Draft{Prompt: "p", Model: "m", Seed: &draftSeed}, dir, NameOptions{})
 	if out.Seed == nil || *out.Seed != draftSeed {
 		t.Fatalf("Seed = %v, want %d", out.Seed, draftSeed)
 	}
@@ -224,14 +230,14 @@ func TestRunOutcomeCarriesSeed(t *testing.T) {
 	// Provider reports a seed: it is preferred over the draft seed.
 	reported := int64(999)
 	p = fakeProvider{res: provider.GenerateResult{Data: []byte("x"), MediaType: "image/png", Seed: &reported}}
-	out = Run(context.Background(), p, Draft{Prompt: "p", Model: "m", Seed: &draftSeed}, dir)
+	out = Run(context.Background(), p, Draft{Prompt: "p", Model: "m", Seed: &draftSeed}, dir, NameOptions{})
 	if out.Seed == nil || *out.Seed != reported {
 		t.Fatalf("Seed = %v, want provider-reported %d", out.Seed, reported)
 	}
 
 	// No seed anywhere (non-seed model): outcome carries nil.
 	p = fakeProvider{res: provider.GenerateResult{Data: []byte("x"), MediaType: "image/png"}}
-	out = Run(context.Background(), p, Draft{Prompt: "p", Model: "m"}, dir)
+	out = Run(context.Background(), p, Draft{Prompt: "p", Model: "m"}, dir, NameOptions{})
 	if out.Seed != nil {
 		t.Fatalf("Seed = %d, want nil for non-seed model", *out.Seed)
 	}
