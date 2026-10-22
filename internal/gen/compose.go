@@ -17,6 +17,8 @@ type Draft struct {
 	Prompt          string
 	Model           string
 	AspectRatio     string
+	Background      string
+	OutputFormat    string
 	Seed            *int64
 	ReferenceImages []provider.ReferenceImage
 }
@@ -37,6 +39,8 @@ func (d Draft) Request() (provider.GenerateRequest, error) {
 		Model:           d.Model,
 		Prompt:          d.Prompt,
 		AspectRatio:     d.AspectRatio,
+		Background:      d.Background,
+		OutputFormat:    d.OutputFormat,
 		Seed:            d.Seed,
 		ReferenceImages: d.ReferenceImages,
 	}, nil

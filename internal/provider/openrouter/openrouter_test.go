@@ -30,7 +30,7 @@ func newTestClient(h http.Handler) (*Client, *httptest.Server) {
 const sampleModels = `{
   "data": [
     {"id":"google/gemini-2.5-flash-image","name":"Gemini 2.5 Flash Image",
-     "supported_parameters":{"aspect_ratio":{"type":"enum","values":["1:1","16:9"]},"input_references":{"type":"range","min":0},"seed":{"type":"range"}}},
+     "supported_parameters":{"aspect_ratio":{"type":"enum","values":["1:1","16:9"]},"input_references":{"type":"range","min":0},"seed":{"type":"range"},"background":{"type":"enum","values":["auto","transparent"]},"output_format":{"type":"enum","values":["png","jpeg"]}}},
     {"id":"some/basic-model","name":"Basic",
      "supported_parameters":{}}
   ]
@@ -57,8 +57,8 @@ func TestModelsMapping(t *testing.T) {
 		t.Fatalf("got %d models, want 2", len(models))
 	}
 	g := models[0]
-	if !g.Capabilities.AcceptsReferenceImages {
-		t.Error("gemini should accept reference images")
+	if !g.Capabilities.SupportsTransparentBackground {
+		t.Error("gemini should support transparent backgrounds")
 	}
 	if !g.Capabilities.SupportsSeed {
 		t.Error("gemini should support seed")
@@ -201,6 +201,72 @@ func TestGenerateWithReferenceUnsupported(t *testing.T) {
 	})
 	if !errors.Is(err, provider.ErrReferenceImagesUnsupported) {
 		t.Fatalf("err = %v, want ErrReferenceImagesUnsupported", err)
+	}
+}
+
+// 4.1 transparent background requested and supported
+func TestGenerateWithTransparentBackgroundAndPngOutput(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("img"))
+	var sawTransparent bool
+	var sawPngOutput bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/images/models", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(sampleModels))
+	})
+	mux.HandleFunc("/images", func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		sawTransparent = strings.Contains(string(buf), "\"background\":\"transparent\"")
+		sawPngOutput = strings.Contains(string(buf), "\"output_format\":\"png\"")
+		w.Write([]byte(`{"data":[{"b64_json":"` + b64 + `","media_type":"image/png"}]}`))
+	})
+	c, srv := newTestClient(mux)
+	defer srv.Close()
+
+	_, err := c.Generate(context.Background(), provider.GenerateRequest{
+		Model:        "google/gemini-2.5-flash-image",
+		Prompt:       "cat",
+		Background:   "transparent",
+		OutputFormat: "png",
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if !sawTransparent {
+		t.Error("expected transparent background in request body")
+	}
+	if !sawPngOutput {
+		t.Error("expected png output format in request body")
+	}
+}
+
+// 4.1 transparent background requested but model does not support it
+func TestGenerateWithoutTransparentBackgroundIfModelNotSupported(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("img"))
+	var sawTransparent bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/images/models", func(w http.ResponseWriter, r *http.Request) {
+		// A sample model that does NOT support transparent backgrounds
+		w.Write([]byte(`{"data":[{"id":"some/basic-model","name":"Basic","supported_parameters":{}}]}`))
+	})
+	mux.HandleFunc("/images", func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		sawTransparent = strings.Contains(string(buf), "\"background\":\"transparent\"")
+		w.Write([]byte(`{"data":[{"b64_json":"` + b64 + `","media_type":"image/png"}]}`))
+	})
+	c, srv := newTestClient(mux)
+	defer srv.Close()
+
+	_, err := c.Generate(context.Background(), provider.GenerateRequest{
+		Model:        "some/basic-model",
+		Prompt:       "dog",
+		Background:   "transparent",
+		OutputFormat: "png",
+	})
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if sawTransparent {
+		t.Error("did not expect transparent background in request body for unsupported model")
 	}
 }
 

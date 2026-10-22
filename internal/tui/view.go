@@ -199,6 +199,13 @@ func (m Model) composeView() string {
 	if ctrls.ShowAspectRatio {
 		settings = append(settings, "Aspect: "+m.aspectRatio)
 	}
+	if caps.SupportsTransparentBackground {
+		state := "off"
+		if m.transparentBackground {
+			state = "on"
+		}
+		settings = append(settings, "Transparent: "+state)
+	}
 	if ctrls.ShowSeed {
 		settings = append(settings, "Seed supported")
 	}
@@ -365,16 +372,24 @@ func (m Model) footerView() string {
 	case phasePicker:
 		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("h", "history"), k("c", "settings"), k("q", "quit")}
 	case phaseCompose:
-		keys = []string{k("ctrl+s", "review"), k("esc", "back"), k("↑/↓", "history"), k("ctrl+p", "history list")}
-		if len(m.currentCaps().AspectRatios) > 0 {
-			keys = append(keys, k("ctrl+a", "aspect ratio"))
+		// Prompt-shaping commands lead on their own row so they are not lost
+		// among the navigation keys that follow.
+		caps := m.currentCaps()
+		var edit []string
+		if len(caps.AspectRatios) > 0 {
+			edit = append(edit, k("ctrl+a", "aspect ratio"))
 		}
-		if m.currentCaps().AcceptsReferenceImages {
-			keys = append(keys, k("ctrl+v", "paste image"))
+		if caps.SupportsTransparentBackground {
+			edit = append(edit, k("ctrl+t", "transparent bg"))
+		}
+		if caps.AcceptsReferenceImages {
+			edit = append(edit, k("ctrl+v", "paste image"))
 			if len(m.refImages) > 0 {
-				keys = append(keys, k("ctrl+r", "remove image"))
+				edit = append(edit, k("ctrl+r", "remove image"))
 			}
 		}
+		nav := []string{k("ctrl+s", "review"), k("esc", "back"), k("↑/↓", "history"), k("ctrl+p", "history list")}
+		return m.footerRows(edit, nav)
 	case phaseAspect:
 		keys = []string{k("↑/↓", "move"), k("enter", "select"), k("esc", "cancel")}
 	case phaseReview:
@@ -400,9 +415,28 @@ func (m Model) footerView() string {
 			keys = []string{k("enter", "new"), k("q", "quit")}
 		}
 	}
-	line := wrapItems(keys, styleFaint.Render("  ·  "), m.contentWidth())
+	return m.footerRows(keys)
+}
+
+// footerRows renders the status line above one or more key-hint groups, each on
+// its own row (and each still width-wrapped). Empty groups are skipped.
+func (m Model) footerRows(groups ...[]string) string {
 	status := ansi.Wrap(styleFaint.Render(m.status), m.contentWidth(), "")
-	return status + "\n" + line
+	sep := styleFaint.Render("  ·  ")
+	out := status
+	rendered := 0
+	for _, g := range groups {
+		if len(g) == 0 {
+			continue
+		}
+		if rendered > 0 {
+			// Blank line between groups to visually separate them.
+			out += "\n"
+		}
+		out += "\n" + wrapItems(g, sep, m.contentWidth())
+		rendered++
+	}
+	return out
 }
 
 func k(key, desc string) string {

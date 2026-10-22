@@ -51,7 +51,12 @@ type Capabilities struct {
 	// means the model does not expose an aspect-ratio control.
 	AspectRatios []string
 	// SupportsSeed reports whether the model accepts a seed parameter.
+	// SupportsSeed reports whether the model accepts a seed parameter.
 	SupportsSeed bool
+	// SupportsTransparentBackground reports whether the model supports generating
+	// images with a transparent background. A transparent background also requires
+	// an alpha-capable output format (e.g. PNG or WebP).
+	SupportsTransparentBackground bool
 }
 
 // ReferenceImage is an input image supplied for editing or style guidance.
@@ -75,6 +80,10 @@ type GenerateRequest struct {
 	AspectRatio string
 	// Seed, when non-nil, requests deterministic generation.
 	Seed *int64
+	// Background, when "transparent", requests a transparent background.
+	Background string
+	// OutputFormat, when non-empty, requests a specific output format.
+	OutputFormat string
 }
 
 // GenerateResult is the outcome of a successful generation.

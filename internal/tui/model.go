@@ -123,6 +123,9 @@ type Model struct {
 	// model. Empty when the model offers no aspect ratios. Recomputed whenever
 	// the active model changes.
 	aspectRatio string
+	// transparentBackground is true when the user has enabled transparent
+	// background generation.
+	transparentBackground bool
 
 	// aspectCursor is the highlighted row within the aspect-ratio dialog while
 	// it is open (phaseAspect). It indexes the active model's offered ratios.
@@ -397,9 +400,15 @@ func (m *Model) removeLastRefImage() bool {
 // reference images) are directly testable. For a seed-capable model it mints a
 // random seed when none is set, so the seed is always known to genifer (shown,
 // reused, reproducible); a non-seed model is left with a nil seed.
+// The Background field is set if transparentBackground is true and the model
+// supports it.
+// The OutputFormat is set to "png" if transparentBackground is true since PNG
+// supports alpha channels.
 func (m Model) composeDraft() gen.Draft {
 	d := gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
-	if m.currentCaps().SupportsSeed {
+
+	caps := m.currentCaps()
+	if caps.SupportsSeed {
 		switch {
 		case m.reuseSeed != nil:
 			s := *m.reuseSeed
@@ -409,6 +418,11 @@ func (m Model) composeDraft() gen.Draft {
 			d.Seed = &s
 		}
 	}
+	if m.transparentBackground && caps.SupportsTransparentBackground {
+		d.Background = "transparent"
+		d.OutputFormat = "png" // PNG supports alpha channel
+	}
+
 	return d
 }
 
@@ -723,7 +737,9 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selected = indexOfModel(m.models, it.m.ID)
 			s := config.LoadState(m.deps.StatePath)
 			m.aspectRatio = pickAspectRatio(it.m.Capabilities.AspectRatios, s.LastAspectRatio)
+			m.transparentBackground = it.m.Capabilities.SupportsTransparentBackground && s.LastTransparentBackground
 			s.LastModel = it.m.ID
+			s.LastTransparentBackground = m.transparentBackground
 			_ = config.SaveState(m.deps.StatePath, s)
 			m.phase = phaseCompose
 			m.prompt.Focus()
@@ -809,6 +825,18 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+p":
 		// Open the history view to recall and reuse a past prompt.
 		return m.openHistory(phaseCompose), nil
+	case "ctrl+t":
+		// Toggle transparent background. The compose settings line is the
+		// canonical on/off indicator, so a successful toggle sets no transient
+		// status (which would duplicate it). Only the unsupported case needs a
+		// message.
+		if m.currentCaps().SupportsTransparentBackground {
+			m.transparentBackground = !m.transparentBackground
+			return m, nil
+		}
+		m.status = "Current model does not support transparent backgrounds."
+		return m, nil
+
 	case "up":
 		// Recall an older prompt only at the first line; otherwise let the
 		// textarea move the cursor up.

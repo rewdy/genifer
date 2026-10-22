@@ -15,6 +15,9 @@ type State struct {
 	// LastAspectRatio is the most recently generated aspect ratio (e.g.
 	// "16:9"). Preferred as the default when a model offers it.
 	LastAspectRatio string `json:"last_aspect_ratio,omitempty"`
+	// LastTransparentBackground is true when the user last requested a transparent
+	// background. Preferred as the default when a model offers it.
+	LastTransparentBackground bool `json:"last_transparent_background,omitempty"`
 }
 
 // StatePath returns the full path to state.json within the config dir.

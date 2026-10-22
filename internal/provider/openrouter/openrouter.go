@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rewdy/genifer/internal/provider"
@@ -31,6 +32,10 @@ type Client struct {
 	// Attribution headers (optional). Referer must be set for Title to count.
 	referer string
 	title   string
+
+	modelCache   sync.Map // modelID -> provider.Model
+	modelCacheMu sync.RWMutex
+	modelCacheTS time.Time
 }
 
 // Option configures a Client.
@@ -109,6 +114,18 @@ type supportedParameter struct {
 }
 
 func (c *Client) Models(ctx context.Context) ([]provider.Model, error) {
+	c.modelCacheMu.RLock()
+	if time.Since(c.modelCacheTS) < 5*time.Minute {
+		models := make([]provider.Model, 0)
+		c.modelCache.Range(func(key, value any) bool {
+			models = append(models, value.(provider.Model))
+			return true
+		})
+		c.modelCacheMu.RUnlock()
+		return models, nil
+	}
+	c.modelCacheMu.RUnlock()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/images/models", nil)
 	if err != nil {
 		return nil, err
@@ -130,13 +147,20 @@ func (c *Client) Models(ctx context.Context) ([]provider.Model, error) {
 		return nil, fmt.Errorf("openrouter: decoding models: %w", err)
 	}
 	models := make([]provider.Model, 0, len(parsed.Data))
+
+	c.modelCacheMu.Lock()
+	defer c.modelCacheMu.Unlock()
+	c.modelCache = sync.Map{}
 	for _, m := range parsed.Data {
-		models = append(models, provider.Model{
+		pm := provider.Model{
 			ID:           m.ID,
 			Name:         orName(m),
 			Capabilities: modelCaps(m),
-		})
+		}
+		models = append(models, pm)
+		c.modelCache.Store(m.ID, pm)
 	}
+	c.modelCacheTS = time.Now()
 	return models, nil
 }
 
@@ -163,6 +187,14 @@ func capsFrom(params map[string]supportedParameter) provider.Capabilities {
 	}
 	if _, ok := params["seed"]; ok {
 		caps.SupportsSeed = true
+	}
+	if p, ok := params["background"]; ok {
+		for _, v := range p.Values {
+			if v == "transparent" {
+				caps.SupportsTransparentBackground = true
+				break
+			}
+		}
 	}
 	return caps
 }
@@ -287,6 +319,8 @@ type generatePayload struct {
 	Prompt          string           `json:"prompt"`
 	N               int              `json:"n"`
 	AspectRatio     string           `json:"aspect_ratio,omitempty"`
+	Background      string           `json:"background,omitempty"`
+	OutputFormat    string           `json:"output_format,omitempty"`
 	Seed            *int64           `json:"seed,omitempty"`
 	InputReferences []inputReference `json:"input_references,omitempty"`
 }
@@ -330,12 +364,23 @@ func (c *Client) Generate(ctx context.Context, r provider.GenerateRequest) (prov
 		return provider.GenerateResult{}, fmt.Errorf("%s: %w", r.Model, err)
 	}
 
+	background, outputFormat := r.Background, r.OutputFormat
+	// Guard: never send a transparent background to a model that does not
+	// support it. The UI gates on this too, but the provider is the one seam to
+	// the outside and already knows the model's capabilities, so it enforces the
+	// constraint rather than relying on the caller.
+	if background == "transparent" && !caps.SupportsTransparentBackground {
+		background, outputFormat = "", ""
+	}
+
 	payload := generatePayload{
-		Model:       r.Model,
-		Prompt:      r.Prompt,
-		N:           1,
-		AspectRatio: r.AspectRatio,
-		Seed:        r.Seed,
+		Model:        r.Model,
+		Prompt:       r.Prompt,
+		N:            1,
+		AspectRatio:  r.AspectRatio,
+		Seed:         r.Seed,
+		Background:   background,
+		OutputFormat: outputFormat,
 	}
 	for _, ref := range r.ReferenceImages {
 		payload.InputReferences = append(payload.InputReferences, inputReference{
