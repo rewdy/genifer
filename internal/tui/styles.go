@@ -20,6 +20,11 @@ const headerBG = lipgloss.Color("#1e1c32")
 // can type into rather than as plain background.
 const inputBG = lipgloss.Color("#2a2745")
 
+// favoriteStar is the warm yellow of the model picker's favorite star, distinct
+// from the pink selection accent so a star reads as yellow whether or not its
+// row is highlighted.
+const favoriteStar = lipgloss.Color("#f5c542")
+
 // ansiReset is the SGR sequence lipgloss uses to clear formatting.
 const ansiReset = "\x1b[0m"
 

@@ -24,10 +24,11 @@ const maxPickerRows = 20
 // filtered/searched on the model name and id, and shows a classified price in
 // its description once pricing has loaded.
 type modelItem struct {
-	m       provider.Model
-	price   provider.Price
-	priced  bool // pricing resolved (from cache or fetch)
-	loading bool // a pricing fetch is in flight
+	m        provider.Model
+	price    provider.Price
+	priced   bool // pricing resolved (from cache or fetch)
+	loading  bool // a pricing fetch is in flight
+	favorite bool // the model is in the user's favorite set
 }
 
 // Title returns the model name. (The custom modelDelegate composes the full
@@ -110,6 +111,10 @@ type Model struct {
 	selected    int
 	modelsErr   error
 	modelsReady bool
+	// favorites is the set of favorited model ids, mirrored from state.json so
+	// rendering and ordering need no file I/O. It may contain ids the provider
+	// no longer offers; those are retained but never displayed.
+	favorites map[string]struct{}
 
 	// pricing
 	prices       map[string]provider.Price // modelID -> resolved price
@@ -360,13 +365,19 @@ func (m Model) savePricingCmd() tea.Cmd {
 	}
 }
 
-// rebuildItems refreshes the picker items from models + current prices,
-// preserving the selected index.
+// rebuildItems refreshes the picker items from the models + current prices,
+// ordering favorited models first and preserving the highlighted model (by id,
+// since reordering breaks index identity).
 func (m *Model) rebuildItems() {
-	sel := m.picker.Index()
-	items := make([]list.Item, len(m.models))
-	for i, mdl := range m.models {
-		it := modelItem{m: mdl}
+	selID := ""
+	if it, ok := m.picker.SelectedItem().(modelItem); ok {
+		selID = it.m.ID
+	}
+	ordered := favoritesFirst(m.models, m.favorites)
+	items := make([]list.Item, len(ordered))
+	for i, mdl := range ordered {
+		_, fav := m.favorites[mdl.ID]
+		it := modelItem{m: mdl, favorite: fav}
 		if p, ok := m.prices[mdl.ID]; ok {
 			it.price, it.priced = p, true
 		} else {
@@ -375,8 +386,20 @@ func (m *Model) rebuildItems() {
 		items[i] = it
 	}
 	m.picker.SetItems(items)
-	if sel >= 0 && sel < len(items) {
-		m.picker.Select(sel)
+	if selID != "" {
+		m.selectPickItemByID(selID)
+	}
+}
+
+// selectPickItemByID highlights the picker row for the model with id. Items
+// and m.models are in different orders (items put favorites first), so picker
+// selection must always be addressed by model id, never by m.models index.
+func (m *Model) selectPickItemByID(id string) {
+	for i, it := range m.picker.Items() {
+		if mi, ok := it.(modelItem); ok && mi.m.ID == id {
+			m.picker.Select(i)
+			return
+		}
 	}
 }
 
@@ -553,10 +576,11 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
 			return m, nil
 		}
 		m = m.initPricing()
+		st := config.LoadState(m.deps.StatePath)
+		m.favorites = st.FavoriteSet()
 		m.rebuildItems()
-		last := config.LoadState(m.deps.StatePath).LastModel
-		if idx := preselectModel(m.models, last); idx >= 0 {
-			m.picker.Select(idx)
+		if idx := preselectModel(m.models, st.LastModel); idx >= 0 {
+			m.selectPickItemByID(m.models[idx].ID)
 		}
 		m.status = fmt.Sprintf("%d models · / to filter", len(m.models))
 		return m, m.pricingCmds()
@@ -736,6 +760,18 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openHistory(phasePicker), nil
 	case "c":
 		return m.openConfig(phasePicker), nil
+	case "f":
+		it, ok := m.picker.SelectedItem().(modelItem)
+		if !ok {
+			return m, nil
+		}
+		if m.toggleFavorite(it.m.ID) {
+			m.status = "★ " + it.m.Name + " added to favorites"
+		} else {
+			m.status = it.m.Name + " removed from favorites"
+		}
+		m.rebuildItems()
+		return m, nil
 	case "enter":
 		if it, ok := m.picker.SelectedItem().(modelItem); ok {
 			m.selected = indexOfModel(m.models, it.m.ID)

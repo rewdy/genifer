@@ -46,7 +46,15 @@ func (d modelDelegate) Render(w io.Writer, m list.Model, index int, item list.It
 		details = append(details, caps)
 	}
 
-	line := cursor + name
+	// Favorite marker: a fixed two-column prefix so names stay aligned whether or
+	// not the row is favorited. The star stays yellow even when the row is
+	// highlighted, so it reads as a marker rather than selection styling.
+	star := "  "
+	if it.favorite {
+		star = lipgloss.NewStyle().Foreground(favoriteStar).Background(headerBG).Render("★ ")
+	}
+
+	line := cursor + star + name
 	if len(details) > 0 {
 		line += detailStyle.Render("  " + strings.Join(details, "  "))
 	}

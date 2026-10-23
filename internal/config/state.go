@@ -18,6 +18,23 @@ type State struct {
 	// LastTransparentBackground is true when the user last requested a transparent
 	// background. Preferred as the default when a model offers it.
 	LastTransparentBackground bool `json:"last_transparent_background,omitempty"`
+	// Favorites holds the ids of models the user marked as favorites. Order is
+	// not meaningful: display order comes from the provider's list. Ids for
+	// models the provider no longer offers are kept so they light up again if the
+	// model returns.
+	Favorites []string `json:"favorites,omitempty"`
+}
+
+// FavoriteSet returns the favorites as a membership set, ignoring empty ids
+// and collapsing duplicates.
+func (s State) FavoriteSet() map[string]struct{} {
+	set := make(map[string]struct{}, len(s.Favorites))
+	for _, id := range s.Favorites {
+		if id != "" {
+			set[id] = struct{}{}
+		}
+	}
+	return set
 }
 
 // StatePath returns the full path to state.json within the config dir.

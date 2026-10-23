@@ -78,3 +78,84 @@ func TestStateAspectRatioEmptyWhenMissing(t *testing.T) {
 		t.Errorf("invalid file: LastAspectRatio = %q, want empty", got.LastAspectRatio)
 	}
 }
+
+func TestFavoriteSet(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"nil", nil, nil},
+		{"empty", []string{}, nil},
+		{"normal", []string{"a/one", "b/two"}, []string{"a/one", "b/two"}},
+		{"duplicates", []string{"a/one", "a/one"}, []string{"a/one"}},
+		{"blank ids ignored", []string{"", "a/one", ""}, []string{"a/one"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := State{Favorites: tc.in}.FavoriteSet()
+			if len(got) != len(tc.want) {
+				t.Fatalf("FavoriteSet(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+			for _, id := range tc.want {
+				if _, ok := got[id]; !ok {
+					t.Errorf("FavoriteSet(%v) missing %q", tc.in, id)
+				}
+			}
+		})
+	}
+}
+
+func TestStateFavoritesRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	in := State{
+		LastModel:       "google/gemini-2.5-flash-image",
+		LastAspectRatio: "16:9",
+		Favorites:       []string{"a/one", "b/two"},
+	}
+	if err := SaveState(path, in); err != nil {
+		t.Fatalf("SaveState: %v", err)
+	}
+	got := LoadState(path)
+	if len(got.Favorites) != 2 || got.Favorites[0] != "a/one" || got.Favorites[1] != "b/two" {
+		t.Errorf("Favorites = %v, want %v", got.Favorites, in.Favorites)
+	}
+	if got.LastModel != in.LastModel {
+		t.Errorf("LastModel = %q, want %q", got.LastModel, in.LastModel)
+	}
+	if got.LastAspectRatio != in.LastAspectRatio {
+		t.Errorf("LastAspectRatio = %q, want %q", got.LastAspectRatio, in.LastAspectRatio)
+	}
+}
+
+func TestSavingFavoritesPreservesOtherSelections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := SaveState(path, State{LastModel: "a/one", LastAspectRatio: "1:1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := LoadState(path)
+	s.Favorites = []string{"b/two"}
+	if err := SaveState(path, s); err != nil {
+		t.Fatal(err)
+	}
+	got := LoadState(path)
+	if got.LastModel != "a/one" || got.LastAspectRatio != "1:1" {
+		t.Errorf("saving favorites clobbered selections: %+v", got)
+	}
+	if len(got.Favorites) != 1 || got.Favorites[0] != "b/two" {
+		t.Errorf("Favorites = %v, want [b/two]", got.Favorites)
+	}
+}
+
+func TestStateFavoritesEmptyWhenMissingOrInvalid(t *testing.T) {
+	if got := LoadState(filepath.Join(t.TempDir(), "absent.json")); len(got.FavoriteSet()) != 0 {
+		t.Errorf("missing file: favorites = %v, want empty", got.Favorites)
+	}
+	path := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadState(path); len(got.FavoriteSet()) != 0 {
+		t.Errorf("invalid file: favorites = %v, want empty", got.Favorites)
+	}
+}

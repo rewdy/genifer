@@ -370,7 +370,7 @@ func (m Model) footerView() string {
 			keys = []string{k("y", "save"), k("n", "back")}
 		}
 	case phasePicker:
-		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("h", "history"), k("c", "settings"), k("q", "quit")}
+		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("f", "favorite"), k("h", "history"), k("c", "settings"), k("q", "quit")}
 	case phaseCompose:
 		// Prompt-shaping commands lead on their own row so they are not lost
 		// among the navigation keys that follow.
