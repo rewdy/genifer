@@ -124,7 +124,7 @@ genifer
 
 | Context    | Keys                                      |
 | ---------- | ----------------------------------------- |
-| Picker     | `↑/↓` move · `/` filter · `enter` select · `h` history · `c` settings · `q` quit |
+| Picker     | `↑/↓` move · `/` filter · `enter` select · `h` history · `c` settings · `r` retry (failed or empty model list) · `q` quit |
 | Compose    | `ctrl+s` review · `esc` back · `↑/↓` recall history · `ctrl+p` history list · `ctrl+a` aspect ratio (when offered) |
 | Review     | `enter` generate · `e` edit               |
 | History    | `↑/↓` move · `/` filter · `enter` reuse · `esc` back |

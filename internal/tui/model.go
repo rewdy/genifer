@@ -756,6 +756,14 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		m.quit = true
 		return m, tea.Quit
+	case "r":
+		if !m.modelsReady || (m.modelsErr == nil && len(m.models) > 0) {
+			return m, nil
+		}
+		m.modelsErr = nil
+		m.modelsReady = false
+		m.status = "Loading models..."
+		return m, loadModels(m.deps.Provider)
 	case "h":
 		return m.openHistory(phasePicker), nil
 	case "c":

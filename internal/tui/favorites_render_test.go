@@ -56,7 +56,8 @@ func TestModelDelegateRendersYellowStar(t *testing.T) {
 // 3.3: the picker footer names the favorite key.
 func TestPickerFooterMentionsFavoriteKey(t *testing.T) {
 	m := New(Deps{})
-	m.phase = phasePicker
+	m.modelsReady = true
+	m.models = testModels
 	footer := m.footerView()
 	if !strings.Contains(ansi.Strip(footer), "favorite") {
 		t.Errorf("picker footer missing favorite hint; got %q", ansi.Strip(footer))

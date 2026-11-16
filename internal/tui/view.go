@@ -157,10 +157,10 @@ func (m Model) pickerView() string {
 		return m.spinner.View() + " Loading models..."
 	}
 	if m.modelsErr != nil {
-		return styleErr.Render(modelErrorText(m.modelsErr))
+		return styleErr.Render(modelErrorText(m.modelsErr)) + "\n\nPress r to retry."
 	}
 	if len(m.models) == 0 {
-		return styleFaint.Render("No image models available.")
+		return styleFaint.Render("No image models available.") + "\n\nPress r to retry."
 	}
 	return "Select a model:\n\n" + m.picker.View()
 }
@@ -370,7 +370,14 @@ func (m Model) footerView() string {
 			keys = []string{k("y", "save"), k("n", "back")}
 		}
 	case phasePicker:
-		keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("f", "favorite"), k("h", "history"), k("c", "settings"), k("q", "quit")}
+		switch {
+		case !m.modelsReady:
+			keys = []string{k("h", "history"), k("c", "settings"), k("q", "quit")}
+		case m.modelsErr != nil || len(m.models) == 0:
+			keys = []string{k("r", "retry"), k("h", "history"), k("c", "settings"), k("q", "quit")}
+		default:
+			keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("f", "favorite"), k("h", "history"), k("c", "settings"), k("q", "quit")}
+		}
 	case phaseCompose:
 		// Prompt-shaping commands lead on their own row so they are not lost
 		// among the navigation keys that follow.
