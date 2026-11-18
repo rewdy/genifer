@@ -166,13 +166,37 @@ func (m Model) handleHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// applySettings restores the background and output-format choices recorded in
+// a history entry, applying each only where the active model supports it. GIF
+// takes precedence over transparency because the two are mutually exclusive.
+// A recorded setting the model does not support falls back to the model's
+// default (off).
+func (m Model) applySettings(background, outputFormat string) Model {
+	caps := m.currentCaps()
+	wantGIF := outputFormat == "gif" && caps.SupportsAnimatedGIF
+	wantTransparent := background == "transparent" && caps.SupportsTransparentBackground
+	switch {
+	case wantGIF:
+		m.animatedGIF, m.transparentBackground = true, false
+	case wantTransparent:
+		m.animatedGIF, m.transparentBackground = false, true
+	default:
+		m.animatedGIF, m.transparentBackground = false, false
+	}
+	return m
+}
+
 // reuseHistoryEntry pre-fills compose from a history entry: the prompt always,
-// and aspect ratio / seed only where the currently selected model supports
-// them.
+// and aspect ratio, seed, and recorded output settings only where the currently
+// selected model supports them. Entries written before settings were recorded
+// leave the current defaults in place.
 func (m Model) reuseHistoryEntry(e config.HistoryEntry) Model {
 	m.prompt.SetValue(e.Prompt)
 	caps := m.currentCaps()
 
+	if e.Background != "" || e.OutputFormat != "" {
+		m = m.applySettings(e.Background, e.OutputFormat)
+	}
 	m.aspectRatio = ""
 	if len(caps.AspectRatios) > 0 && e.AspectRatio != "" && indexOfString(caps.AspectRatios, e.AspectRatio) >= 0 {
 		m.aspectRatio = e.AspectRatio
@@ -238,12 +262,14 @@ func (m Model) recordHistoryCmd() tea.Cmd {
 	}
 	d := m.lastDraft
 	entry := config.HistoryEntry{
-		Prompt:      d.Prompt,
-		Model:       d.Model,
-		AspectRatio: d.AspectRatio,
-		Seed:        m.outcome.Seed,
-		Path:        m.outcome.Path,
-		CreatedAt:   timeNow(),
+		Prompt:       d.Prompt,
+		Model:        d.Model,
+		AspectRatio:  d.AspectRatio,
+		Seed:         m.outcome.Seed,
+		Background:   d.Background,
+		OutputFormat: d.OutputFormat,
+		Path:         m.outcome.Path,
+		CreatedAt:    timeNow(),
 	}
 	path := m.deps.HistoryPath
 	return func() tea.Msg {
@@ -324,6 +350,13 @@ func (m Model) recallPrevious() Model {
 	}
 	if !m.recallActive() {
 		m.recallDraft = m.prompt.Value()
+		m.recallBackground, m.recallOutputFormat = "", ""
+		if m.transparentBackground {
+			m.recallBackground = "transparent"
+		}
+		if m.animatedGIF {
+			m.recallOutputFormat = "gif"
+		}
 		m.historyEntries = entries // freeze the set for this session
 		m.recallIndex = 0
 	} else if m.recallIndex < len(entries)-1 {
@@ -363,13 +396,15 @@ func (m Model) applyRecalled(e config.HistoryEntry) Model {
 	return m
 }
 
-// restoreRecallDraft returns the prompt to the snapshot draft and ends the
-// session. A draft carries no recalled seed.
+// restoreRecallDraft returns the prompt and output settings to the snapshot
+// draft and ends the session. A draft carries no recalled seed.
 func (m Model) restoreRecallDraft() Model {
 	m.prompt.SetValue(m.recallDraft)
+	m = m.applySettings(m.recallBackground, m.recallOutputFormat)
 	m.reuseSeed = nil
 	m.recallIndex = recallInactive
 	m.recallDraft = ""
+	m.recallBackground, m.recallOutputFormat = "", ""
 	m.prompt.CursorEnd()
 	m.status = "Compose your prompt"
 	return m
@@ -380,4 +415,5 @@ func (m Model) restoreRecallDraft() Model {
 func (m *Model) endRecallSession() {
 	m.recallIndex = recallInactive
 	m.recallDraft = ""
+	m.recallBackground, m.recallOutputFormat = "", ""
 }

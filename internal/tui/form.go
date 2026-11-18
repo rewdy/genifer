@@ -57,6 +57,7 @@ type FormControls struct {
 	AspectRatios    []string
 	ShowSeed        bool
 	ShowReference   bool
+	ShowAnimatedGIF bool
 }
 
 // controlsFor derives the available form controls from a model's capabilities.
@@ -66,6 +67,7 @@ func controlsFor(c provider.Capabilities) FormControls {
 		AspectRatios:    c.AspectRatios,
 		ShowSeed:        c.SupportsSeed,
 		ShowReference:   c.AcceptsReferenceImages,
+		ShowAnimatedGIF: c.SupportsAnimatedGIF,
 	}
 }
 

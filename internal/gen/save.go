@@ -20,6 +20,8 @@ func extByMediaType(mt string) string {
 		return ".webp"
 	case "image/svg+xml":
 		return ".svg"
+	case "image/gif":
+		return ".gif"
 	default:
 		return ".img"
 	}

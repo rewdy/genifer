@@ -271,6 +271,60 @@ func TestGenerateWithoutTransparentBackgroundIfModelNotSupported(t *testing.T) {
 	}
 }
 
+// GIF output is requested only for models that advertise it, and it cancels a
+// transparent-background request because transparency needs PNG or WebP.
+func TestGenerateGIFOutputGuard(t *testing.T) {
+	b64 := base64.StdEncoding.EncodeToString([]byte("img"))
+	const gifModels = `{"data":[{"id":"gif/model","name":"GIF","supported_parameters":{"output_format":{"type":"enum","values":["png","gif"]},"background":{"type":"enum","values":["auto","transparent"]}}}]}`
+	const plainModels = `{"data":[{"id":"plain/model","name":"Plain","supported_parameters":{}}]}`
+
+	for _, tc := range []struct {
+		name, models, model, wantOutputFormat string
+		wantGIF, wantTransparent              bool
+	}{
+		{"supported", gifModels, "gif/model", "gif", true, false},
+		{"unsupported", plainModels, "plain/model", "", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body string
+			mux := http.NewServeMux()
+			mux.HandleFunc("/images/models", func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(tc.models))
+			})
+			mux.HandleFunc("/images", func(w http.ResponseWriter, r *http.Request) {
+				buf, _ := io.ReadAll(r.Body)
+				body = string(buf)
+				w.Write([]byte(`{"data":[{"b64_json":"` + b64 + `","media_type":"image/gif"}]}`))
+			})
+			c, srv := newTestClient(mux)
+			defer srv.Close()
+
+			_, err := c.Generate(context.Background(), provider.GenerateRequest{
+				Model:        tc.model,
+				Prompt:       "spinning cat",
+				OutputFormat: "gif",
+				Background:   "transparent",
+			})
+			if err != nil {
+				t.Fatalf("Generate: %v", err)
+			}
+			if got := strings.Contains(body, `"output_format":"gif"`); got != tc.wantGIF {
+				t.Errorf("GIF output in body = %v, want %v; body = %s", got, tc.wantGIF, body)
+			}
+			if got := strings.Contains(body, `"background":"transparent"`); got != tc.wantTransparent {
+				t.Errorf("transparent background in body = %v, want %v; body = %s", got, tc.wantTransparent, body)
+			}
+			if tc.wantOutputFormat == "" {
+				if strings.Contains(body, `"output_format":"gif"`) {
+					t.Error("unsupported model must not receive GIF output format")
+				}
+			} else if !strings.Contains(body, `"output_format":"`+tc.wantOutputFormat+`"`) {
+				t.Errorf("missing output format %q in body = %s", tc.wantOutputFormat, body)
+			}
+		})
+	}
+}
+
 // 4.4 error mapping
 func TestGenerateErrorMapping(t *testing.T) {
 	cases := []struct {

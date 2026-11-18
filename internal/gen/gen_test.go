@@ -82,12 +82,23 @@ func TestSaveMediaTypeExtensions(t *testing.T) {
 		"image/jpeg":    ".jpg",
 		"image/webp":    ".webp",
 		"image/svg+xml": ".svg",
+		"image/gif":     ".gif",
 		"weird/type":    ".img",
 	}
 	for mt, want := range cases {
 		if got := extByMediaType(mt); got != want {
 			t.Errorf("ext(%q) = %q, want %q", mt, got, want)
 		}
+	}
+}
+
+func TestSaveGIFUsesGifExtension(t *testing.T) {
+	path, err := Save(t.TempDir(), provider.GenerateResult{Data: []byte("GIF89a"), MediaType: "image/gif"}, "spinner")
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got := filepath.Ext(path); got != ".gif" {
+		t.Errorf("ext = %q, want .gif", got)
 	}
 }
 

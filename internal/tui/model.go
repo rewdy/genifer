@@ -111,6 +111,9 @@ type Model struct {
 	selected    int
 	modelsErr   error
 	modelsReady bool
+	// pickerFilters narrows models by advertised capabilities. It composes
+	// with the list's own text filter and with favorites-first ordering.
+	pickerFilters pickerFilters
 	// favorites is the set of favorited model ids, mirrored from state.json so
 	// rendering and ordering need no file I/O. It may contain ids the provider
 	// no longer offers; those are retained but never displayed.
@@ -131,6 +134,9 @@ type Model struct {
 	// transparentBackground is true when the user has enabled transparent
 	// background generation.
 	transparentBackground bool
+	// animatedGIF is true when the user has requested animated GIF output.
+	// It is mutually exclusive with transparentBackground.
+	animatedGIF bool
 
 	// aspectCursor is the highlighted row within the aspect-ratio dialog while
 	// it is open (phaseAspect). It indexes the active model's offered ratios.
@@ -173,9 +179,12 @@ type Model struct {
 	// recallIndex is the position in historyEntries, or recallInactive (-1)
 	// when the prompt holds the user's own draft rather than a recalled entry.
 	// recallDraft snapshots the in-progress prompt when a recall session starts
-	// so stepping forward past the newest entry restores it.
-	recallIndex int
-	recallDraft string
+	// so stepping forward past the newest entry restores it. The background
+	// and format fields snapshot the in-progress settings for the same reason.
+	recallIndex        int
+	recallDraft        string
+	recallBackground   string
+	recallOutputFormat string
 
 	// onboarding (first run only)
 	onboard onboardState
@@ -374,8 +383,11 @@ func (m *Model) rebuildItems() {
 		selID = it.m.ID
 	}
 	ordered := favoritesFirst(m.models, m.favorites)
-	items := make([]list.Item, len(ordered))
-	for i, mdl := range ordered {
+	items := make([]list.Item, 0, len(ordered))
+	for _, mdl := range ordered {
+		if !m.pickerFilters.matches(mdl.Capabilities) {
+			continue
+		}
 		_, fav := m.favorites[mdl.ID]
 		it := modelItem{m: mdl, favorite: fav}
 		if p, ok := m.prices[mdl.ID]; ok {
@@ -383,11 +395,16 @@ func (m *Model) rebuildItems() {
 		} else {
 			it.loading = m.pricingPend > 0
 		}
-		items[i] = it
+		items = append(items, it)
 	}
 	m.picker.SetItems(items)
 	if selID != "" {
 		m.selectPickItemByID(selID)
+	}
+	// A filter can remove the selected model entirely; keep the cursor on a
+	// valid row so arrow keys and enter still work.
+	if len(items) > 0 && m.picker.Index() >= len(items) {
+		m.picker.Select(0)
 	}
 }
 
@@ -424,9 +441,8 @@ func (m *Model) removeLastRefImage() bool {
 // random seed when none is set, so the seed is always known to genifer (shown,
 // reused, reproducible); a non-seed model is left with a nil seed.
 // The Background field is set if transparentBackground is true and the model
-// supports it.
-// The OutputFormat is set to "png" if transparentBackground is true since PNG
-// supports alpha channels.
+// supports it. The OutputFormat is set to "png" for transparency (alpha channel)
+// or "gif" when animated GIF output is enabled and supported.
 func (m Model) composeDraft() gen.Draft {
 	d := gen.Draft{Prompt: m.prompt.Value(), Model: m.currentModelID(), AspectRatio: m.aspectRatio, ReferenceImages: m.refImages}
 
@@ -441,7 +457,9 @@ func (m Model) composeDraft() gen.Draft {
 			d.Seed = &s
 		}
 	}
-	if m.transparentBackground && caps.SupportsTransparentBackground {
+	if m.animatedGIF && caps.SupportsAnimatedGIF {
+		d.OutputFormat = "gif"
+	} else if m.transparentBackground && caps.SupportsTransparentBackground {
 		d.Background = "transparent"
 		d.OutputFormat = "png" // PNG supports alpha channel
 	}
@@ -582,7 +600,7 @@ func (m Model) Update(msg tea.Msg) (updated tea.Model, command tea.Cmd) {
 		if idx := preselectModel(m.models, st.LastModel); idx >= 0 {
 			m.selectPickItemByID(m.models[idx].ID)
 		}
-		m.status = fmt.Sprintf("%d models · / to filter", len(m.models))
+		m.status = m.pickerStatus()
 		return m, m.pricingCmds()
 
 	case priceLoadedMsg:
@@ -780,12 +798,23 @@ func (m Model) handlePickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.rebuildItems()
 		return m, nil
+	case "1", "2", "3", "4", "5", "0":
+		if !m.modelsReady || m.modelsErr != nil || len(m.models) == 0 {
+			return m, nil
+		}
+		if !m.pickerFilters.toggle(msg.String()) {
+			return m, nil
+		}
+		m.rebuildItems()
+		m.status = m.pickerStatus()
+		return m, nil
 	case "enter":
 		if it, ok := m.picker.SelectedItem().(modelItem); ok {
 			m.selected = indexOfModel(m.models, it.m.ID)
 			s := config.LoadState(m.deps.StatePath)
 			m.aspectRatio = pickAspectRatio(it.m.Capabilities.AspectRatios, s.LastAspectRatio)
 			m.transparentBackground = it.m.Capabilities.SupportsTransparentBackground && s.LastTransparentBackground
+			m.animatedGIF = false // no last-used preference; a recalled entry can restore it
 			s.LastModel = it.m.ID
 			s.LastTransparentBackground = m.transparentBackground
 			_ = config.SaveState(m.deps.StatePath, s)
@@ -880,9 +909,25 @@ func (m Model) handleComposeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// message.
 		if m.currentCaps().SupportsTransparentBackground {
 			m.transparentBackground = !m.transparentBackground
+			if m.transparentBackground {
+				m.animatedGIF = false // transparency requires PNG/WebP output
+			}
 			return m, nil
 		}
 		m.status = "Current model does not support transparent backgrounds."
+		return m, nil
+	case "ctrl+g":
+		// Toggle animated GIF output. The compose settings line is the
+		// canonical on/off indicator; only the unsupported case needs a
+		// transient status message.
+		if m.currentCaps().SupportsAnimatedGIF {
+			m.animatedGIF = !m.animatedGIF
+			if m.animatedGIF {
+				m.transparentBackground = false // GIF output is not alpha-capable
+			}
+			return m, nil
+		}
+		m.status = "Current model does not support animated GIF output."
 		return m, nil
 
 	case "up":

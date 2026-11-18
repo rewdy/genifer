@@ -181,6 +181,12 @@ func capsFrom(params map[string]supportedParameter) provider.Capabilities {
 	}
 	if p, ok := params["output_format"]; ok {
 		caps.OutputFormats = p.Values
+		for _, v := range p.Values {
+			if v == "gif" {
+				caps.SupportsAnimatedGIF = true
+				break
+			}
+		}
 	}
 	if p, ok := params["aspect_ratio"]; ok {
 		caps.AspectRatios = p.Values
@@ -365,12 +371,19 @@ func (c *Client) Generate(ctx context.Context, r provider.GenerateRequest) (prov
 	}
 
 	background, outputFormat := r.Background, r.OutputFormat
+	// Guard: never send an output format the model did not advertise. The UI
+	// gates on capabilities too, but the provider is the seam to the outside
+	// world and already knows them, so it enforces the constraint itself.
+	if outputFormat == "gif" && !caps.SupportsAnimatedGIF {
+		outputFormat = ""
+	}
 	// Guard: never send a transparent background to a model that does not
-	// support it. The UI gates on this too, but the provider is the one seam to
-	// the outside and already knows the model's capabilities, so it enforces the
-	// constraint rather than relying on the caller.
+	// support it. GIF output and transparency are mutually exclusive because
+	// OpenRouter requires an alpha-capable format (PNG or WebP) for the latter.
 	if background == "transparent" && !caps.SupportsTransparentBackground {
 		background, outputFormat = "", ""
+	} else if background == "transparent" && outputFormat == "gif" {
+		background = ""
 	}
 
 	payload := generatePayload{

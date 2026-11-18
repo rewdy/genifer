@@ -15,12 +15,14 @@ const historyCacheVersion = 1
 // HistoryEntry is a record of one successful generation, enough to recall and
 // reuse the prompt and its recoverable parameters later.
 type HistoryEntry struct {
-	Prompt      string    `json:"prompt"`
-	Model       string    `json:"model"`
-	AspectRatio string    `json:"aspect_ratio,omitempty"`
-	Seed        *int64    `json:"seed,omitempty"`
-	Path        string    `json:"path,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	Prompt       string    `json:"prompt"`
+	Model        string    `json:"model"`
+	AspectRatio  string    `json:"aspect_ratio,omitempty"`
+	Seed         *int64    `json:"seed,omitempty"`
+	Background   string    `json:"background,omitempty"`
+	OutputFormat string    `json:"output_format,omitempty"`
+	Path         string    `json:"path,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // HistoryCache is the app-owned, on-disk record of past generations. It retains

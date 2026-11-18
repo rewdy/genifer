@@ -101,11 +101,28 @@ and is best-effort — a failed or empty reply falls back to a timestamped name
 without affecting the saved image.
 
 The discovery descriptor for `input_references` includes `min` and `max` count
-bounds when known. Model-level capabilities combine endpoints; per-endpoint
+bounds when known. An animation-capable model advertises `gif` in its
+`output_format` enum; genifer uses that signal to offer the animated GIF option
+and never sends `output_format: "gif"` to a model that does not advertise it.
+Model-level capabilities combine endpoints; per-endpoint
 records are definitive, so a valid model-level request can still be rejected by
 upstream routing. Format/dimension rules for the four Recraft Styles models are
 currently documented on their model pages rather than included in discovery;
 genifer supplements those models' capabilities in the OpenRouter adapter.
+
+## Animated GIF output
+
+When a model advertises GIF output, the compose form offers an **Animated** toggle
+(`ctrl+g`). Enabling it sends `output_format: "gif"` with the generation request;
+the response is saved with a `.gif` extension. Animation length and frame timing
+are left to the provider defaults — genifer does not expose `frame_count` or
+`frame_duration_ms`. The terminal preview shows a still frame of the GIF.
+
+GIF output and transparent backgrounds are mutually exclusive: OpenRouter
+requires an alpha-capable format (PNG or WebP) for `background: "transparent"`.
+Turning either option on turns the other off, and the provider drops an
+unsupported GIF request before calling the API. Models that do not advertise GIF
+output simply keep their default output format.
 
 For example, the following Python script constructs a request using a local PNG
 style reference (at least 256 by 256 pixels):

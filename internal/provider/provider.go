@@ -62,6 +62,9 @@ type Capabilities struct {
 	// images with a transparent background. A transparent background also requires
 	// an alpha-capable output format (e.g. PNG or WebP).
 	SupportsTransparentBackground bool
+	// SupportsAnimatedGIF reports whether the model advertises GIF output, which
+	// is how animation-capable models expose animated image generation.
+	SupportsAnimatedGIF bool
 }
 
 // TextRequest is a provider-agnostic request for a short text completion.

@@ -11,7 +11,7 @@ func TestHistoryRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "history-cache.json")
 	seed := int64(42)
 	in := HistoryCache{Entries: []HistoryEntry{
-		{Prompt: "a cat", Model: "m", AspectRatio: "1:1", Seed: &seed, Path: "/tmp/a.png", CreatedAt: time.Now()},
+		{Prompt: "a cat", Model: "m", AspectRatio: "1:1", Seed: &seed, Background: "transparent", OutputFormat: "png", Path: "/tmp/a.png", CreatedAt: time.Now()},
 	}}
 	if err := SaveHistory(path, in); err != nil {
 		t.Fatalf("save: %v", err)
@@ -21,11 +21,24 @@ func TestHistoryRoundTrip(t *testing.T) {
 		t.Fatalf("entries = %d, want 1", len(got.Entries))
 	}
 	e := got.Entries[0]
-	if e.Prompt != "a cat" || e.Model != "m" || e.AspectRatio != "1:1" || e.Path != "/tmp/a.png" {
+	if e.Prompt != "a cat" || e.Model != "m" || e.AspectRatio != "1:1" || e.Path != "/tmp/a.png" ||
+		e.Background != "transparent" || e.OutputFormat != "png" {
 		t.Errorf("round-trip mismatch: %+v", e)
 	}
 	if e.Seed == nil || *e.Seed != 42 {
 		t.Errorf("seed = %v, want 42", e.Seed)
+	}
+}
+
+func TestHistoryOlderEntriesWithoutSettingsRemainReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history-cache.json")
+	os.WriteFile(path, []byte(`{"version":1,"entries":[{"prompt":"old","model":"m","created_at":"2026-01-01T00:00:00Z"}]}`), 0o600)
+	got := LoadHistory(path)
+	if len(got.Entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(got.Entries))
+	}
+	if e := got.Entries[0]; e.Prompt != "old" || e.Background != "" || e.OutputFormat != "" {
+		t.Errorf("older entry mismatch: %+v", e)
 	}
 }
 

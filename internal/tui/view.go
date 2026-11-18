@@ -162,7 +162,12 @@ func (m Model) pickerView() string {
 	if len(m.models) == 0 {
 		return styleFaint.Render("No image models available.") + "\n\nPress r to retry."
 	}
-	return "Select a model:\n\n" + m.picker.View()
+	if len(m.models) > 0 && len(m.picker.VisibleItems()) == 0 {
+		return styleFaint.Render("No models match the active filters or search.") +
+			"\n\nPress 0 to clear filters or esc to clear the search."
+	}
+	legend := styleFaint.Render("Capability filters: 1 transparent · 2 GIF · 3 refs · 4 seed · 5 SVG · 0 clear")
+	return "Select a model:\n\n" + legend + "\n\n" + m.picker.View()
 }
 
 func capHint(c provider.Capabilities) string {
@@ -182,6 +187,12 @@ func capHint(c provider.Capabilities) string {
 	}
 	if c.SupportsSeed {
 		parts = append(parts, "seed")
+	}
+	if c.SupportsTransparentBackground {
+		parts = append(parts, "transparent")
+	}
+	if c.SupportsAnimatedGIF {
+		parts = append(parts, "gif")
 	}
 	if len(parts) == 0 {
 		return ""
@@ -205,6 +216,13 @@ func (m Model) composeView() string {
 			state = "on"
 		}
 		settings = append(settings, "Transparent: "+state)
+	}
+	if ctrls.ShowAnimatedGIF {
+		state := "off"
+		if m.animatedGIF {
+			state = "on"
+		}
+		settings = append(settings, "Animated: "+state)
 	}
 	if ctrls.ShowSeed {
 		settings = append(settings, "Seed supported")
@@ -376,7 +394,7 @@ func (m Model) footerView() string {
 		case m.modelsErr != nil || len(m.models) == 0:
 			keys = []string{k("r", "retry"), k("h", "history"), k("c", "settings"), k("q", "quit")}
 		default:
-			keys = []string{k("↑/↓", "move"), k("/", "filter"), k("enter", "select"), k("f", "favorite"), k("h", "history"), k("c", "settings"), k("q", "quit")}
+			keys = []string{k("↑/↓", "move"), k("/", "filter"), k("1-5", "cap filters"), k("0", "clear"), k("enter", "select"), k("f", "favorite"), k("h", "history"), k("c", "settings"), k("q", "quit")}
 		}
 	case phaseCompose:
 		// Prompt-shaping commands lead on their own row so they are not lost
@@ -388,6 +406,9 @@ func (m Model) footerView() string {
 		}
 		if caps.SupportsTransparentBackground {
 			edit = append(edit, k("ctrl+t", "transparent bg"))
+		}
+		if caps.SupportsAnimatedGIF {
+			edit = append(edit, k("ctrl+g", "animated gif"))
 		}
 		if caps.AcceptsReferenceImages {
 			edit = append(edit, k("ctrl+v", "paste image"))

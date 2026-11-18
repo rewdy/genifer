@@ -47,3 +47,25 @@ func TestReferenceCapabilities(t *testing.T) {
 	}
 }
 func intPtr(n int) *int { return &n }
+
+func TestAnimatedGIFCapabilities(t *testing.T) {
+	for _, tc := range []struct {
+		name, params string
+		want         bool
+	}{
+		{"gif advertised", `{"output_format":{"type":"enum","values":["png","gif"]}}`, true},
+		{"gif only", `{"output_format":{"type":"enum","values":["gif"]}}`, true},
+		{"no gif", `{"output_format":{"type":"enum","values":["png","jpeg"]}}`, false},
+		{"no output format", `{}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var params map[string]supportedParameter
+			if err := json.Unmarshal([]byte(tc.params), &params); err != nil {
+				t.Fatal(err)
+			}
+			if got := capsFrom(params).SupportsAnimatedGIF; got != tc.want {
+				t.Fatalf("SupportsAnimatedGIF = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
